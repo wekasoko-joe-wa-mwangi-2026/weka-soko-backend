@@ -79,7 +79,7 @@ module.exports = router;
 // ── SOCKET.IO HANDLER ─────────────────────────────────────────────────────────
 // src/services/socket.service.js
 const jwt = require("jsonwebtoken");
-const { detectContactInfo, getSeverity } = require("./moderation.service");
+const { detectContactInfo, getSeverity } = require("../services/moderation.service");
 
 function initSocket(io, dbQuery) {
   // Auth middleware for socket connections
