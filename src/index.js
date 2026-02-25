@@ -10,7 +10,6 @@ const rateLimit = require("express-rate-limit");
 
 const { pool } = require("./db/pool");
 const { query } = require("./db/pool");
-const { initSocket } = require("./routes/chat");
 const { startCronJobs } = require("./services/cron.service");
 
 const authRoutes = require("./routes/auth");
@@ -31,9 +30,7 @@ const io = new Server(server, {
     credentials: true,
   },
 });
-// Extract and pass socket init (defined inside chat.js)
-const { initSocket: socketInit } = require("./routes/chat");
-// We define initSocket inline here since it needs io + query
+// Socket.io is handled directly below
 const jwt = require("jsonwebtoken");
 const { detectContactInfo, getSeverity } = require("./services/moderation.service");
 
