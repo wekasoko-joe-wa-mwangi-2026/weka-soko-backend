@@ -223,16 +223,23 @@ app.use((req, res) => {
   res.status(404).json({ error: `Route ${req.method} ${req.path} not found` });
 });
 
-// ── Start Server ──────────────────────────────────────────────────────────────
+// ── Start Server (runs migration first, then starts) ─────────────────────────
 const PORT = process.env.PORT || 5000;
-server.listen(PORT, () => {
-  console.log(`
+const { runMigration } = require("./db/migrate_all");
+
+runMigration().then(() => {
+  server.listen(PORT, () => {
+    console.log(`
 ╔══════════════════════════════════════════╗
 ║       🛍  WEKA SOKO API RUNNING          ║
 ║   Port: ${PORT}  |  Env: ${process.env.NODE_ENV || "development"}        ║
 ╚══════════════════════════════════════════╝
   `);
-  startCronJobs();
+    startCronJobs();
+  });
+}).catch(err => {
+  console.error("❌ Startup failed:", err.message);
+  process.exit(1);
 });
 
 module.exports = { app, server };
