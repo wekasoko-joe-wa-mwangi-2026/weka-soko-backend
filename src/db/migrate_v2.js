@@ -7,11 +7,14 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
 const schema = `
 
+-- Enable UUID extension first (fixes uuid_generate_v4 error)
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
 -- ─── VOUCHERS ───────────────────────────────────────
 CREATE TABLE IF NOT EXISTS vouchers (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   code            VARCHAR(30) UNIQUE NOT NULL,
-  type            VARCHAR(20) NOT NULL DEFAULT 'unlock', -- 'unlock' | 'escrow' | 'both'
+  type            VARCHAR(20) NOT NULL DEFAULT 'unlock',
   discount_percent INT NOT NULL DEFAULT 100,
   description     TEXT,
   max_uses        INT NOT NULL DEFAULT 50,
@@ -33,7 +36,7 @@ ON CONFLICT (code) DO NOTHING;
 CREATE TABLE IF NOT EXISTS messages (
   id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   recipient_id  UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  sender_type   VARCHAR(30) DEFAULT 'system', -- 'system' | 'admin' | 'automated'
+  sender_type   VARCHAR(30) DEFAULT 'system',
   subject       VARCHAR(255) NOT NULL,
   body          TEXT NOT NULL,
   listing_id    UUID REFERENCES listings(id) ON DELETE SET NULL,
@@ -45,10 +48,10 @@ CREATE INDEX IF NOT EXISTS idx_messages_recipient ON messages(recipient_id, crea
 -- ─── FOLLOW-UP TRACKING ──────────────────────────────
 ALTER TABLE listings 
   ADD COLUMN IF NOT EXISTS last_followup_at TIMESTAMPTZ,
-  ADD COLUMN IF NOT EXISTS sold_via VARCHAR(20), -- 'platform' | 'elsewhere'
+  ADD COLUMN IF NOT EXISTS sold_via VARCHAR(20),
   ADD COLUMN IF NOT EXISTS negotiated_price NUMERIC(12,2),
   ADD COLUMN IF NOT EXISTS subcat VARCHAR(80),
-  ADD COLUMN IF NOT EXISTS photos TEXT[], -- array of Cloudinary URLs
+  ADD COLUMN IF NOT EXISTS photos TEXT[],
   ADD COLUMN IF NOT EXISTS whatsapp_phone VARCHAR(20);
 
 -- ─── USERS — NEW COLUMNS ──────────────────────────────
@@ -56,7 +59,7 @@ ALTER TABLE users
   ADD COLUMN IF NOT EXISTS whatsapp_phone VARCHAR(20),
   ADD COLUMN IF NOT EXISTS mpesa_phone VARCHAR(20),
   ADD COLUMN IF NOT EXISTS bio TEXT,
-  ADD COLUMN IF NOT EXISTS account_status VARCHAR(20) DEFAULT 'active', -- 'active' | 'suspended' | 'deleted'
+  ADD COLUMN IF NOT EXISTS account_status VARCHAR(20) DEFAULT 'active',
   ADD COLUMN IF NOT EXISTS free_unlock_approved BOOLEAN DEFAULT FALSE;
 
 -- ─── PRICE OFFERS / NEGOTIATIONS ────────────────────
@@ -67,7 +70,7 @@ CREATE TABLE IF NOT EXISTS price_offers (
   seller_id   UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   offer_price NUMERIC(12,2) NOT NULL,
   message     TEXT,
-  status      VARCHAR(20) DEFAULT 'pending', -- 'pending' | 'accepted' | 'declined'
+  status      VARCHAR(20) DEFAULT 'pending',
   created_at  TIMESTAMPTZ DEFAULT NOW(),
   responded_at TIMESTAMPTZ
 );
