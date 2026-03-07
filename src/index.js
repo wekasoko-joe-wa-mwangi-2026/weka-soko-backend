@@ -166,7 +166,23 @@ io.on("connection", (socket) => {
 app.set("trust proxy", 1);
 app.use(helmet());
 app.use(cors({
-  origin: process.env.FRONTEND_URL || "http://localhost:3000",
+  origin: function (origin, callback) {
+    // Allow requests with no origin (mobile apps, curl, Postman)
+    if (!origin) return callback(null, true);
+    const allowed = [
+      process.env.FRONTEND_URL,
+      process.env.ADMIN_URL,
+      "http://localhost:3000",
+      "http://localhost:3001",
+    ].filter(Boolean);
+    // Also allow any vercel.app subdomain for this project
+    const isVercel = /^https:\/\/weka-soko[^.]*\.vercel\.app$/.test(origin);
+    if (allowed.includes(origin) || isVercel) {
+      callback(null, true);
+    } else {
+      callback(null, true); // Allow all origins for now — tighten after launch
+    }
+  },
   credentials: true,
 }));
 app.use(morgan(process.env.NODE_ENV === "production" ? "combined" : "dev"));
