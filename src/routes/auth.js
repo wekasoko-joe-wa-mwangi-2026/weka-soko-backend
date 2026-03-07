@@ -5,6 +5,7 @@ const jwt = require("jsonwebtoken");
 const { body, validationResult } = require("express-validator");
 const { query } = require("../db/pool");
 const { requireAuth } = require("../middleware/auth");
+const { sendWelcomeMessage } = require("../services/notification.service");
 
 const router = express.Router();
 
@@ -52,6 +53,9 @@ router.post(
 
       const user = rows[0];
       const token = signToken(user);
+
+      // Send welcome email (non-blocking)
+      sendWelcomeMessage({ userId: user.id, name: user.name, email: user.email, phone: user.phone }).catch(err => console.error("[Auth] Welcome email failed:", err.message));
 
       res.status(201).json({ user, token });
     } catch (err) {
