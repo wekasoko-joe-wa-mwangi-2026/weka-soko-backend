@@ -4,14 +4,123 @@ async function sendEmail(to, name, subject, text) {
   const fromEmail = process.env.EMAIL_FROM;
   if (!fromEmail) return;
   try {
-    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${subject}</title></head>
-<body style="font-family:Arial,sans-serif;max-width:580px;margin:0 auto;padding:20px;background:#f7f6f2;color:#1a1a18;">
-<div style="background:#fff;border-radius:12px;padding:32px;border:1px solid #e2ded5;">
-  <div style="margin-bottom:22px;"><span style="font-size:22px;font-weight:800;">Weka<span style="color:#1a6b38">Soko</span></span></div>
-  <div style="white-space:pre-wrap;font-size:15px;line-height:1.85;color:#333;">${text.replace(/</g,"&lt;").replace(/>/g,"&gt;")}</div>
-  <hr style="margin:28px 0;border:none;border-top:1px solid #e2ded5;"/>
-  <p style="font-size:11px;color:#aaa;margin:0;">Weka Soko · Kenya's Smartest Resell Platform<br>This is a transactional email. <a href="mailto:${fromEmail}?subject=Unsubscribe" style="color:#aaa;">Unsubscribe</a> · <a href="mailto:support@wekasoko.co.ke" style="color:#aaa;">Support</a></p>
-</div></body></html>`;
+    const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>${subject}</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700;800&display=swap');
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #F4F4F4; font-family: 'Outfit', Arial, sans-serif; color: #1D1D1D; -webkit-font-smoothing: antialiased; }
+    a { color: #1428A0; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body style="background:#F4F4F4;padding:40px 16px;">
+
+  <!-- Wrapper -->
+  <table width="100%" cellpadding="0" cellspacing="0" role="presentation">
+    <tr>
+      <td align="center">
+        <table width="100%" style="max-width:600px;" cellpadding="0" cellspacing="0" role="presentation">
+
+          <!-- Header / Nav bar -->
+          <tr>
+            <td style="background:#000000;padding:20px 32px;">
+              <table width="100%" cellpadding="0" cellspacing="0" role="presentation">
+                <tr>
+                  <td>
+                    <span style="font-family:'Outfit',Arial,sans-serif;font-size:20px;font-weight:800;color:#FFFFFF;letter-spacing:-0.01em;">
+                      Weka<span style="color:#4B77FF;">Soko</span>
+                    </span>
+                  </td>
+                  <td align="right">
+                    <span style="font-size:11px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:rgba(255,255,255,0.5);">
+                      Kenya's Resell Platform
+                    </span>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- Blue accent bar -->
+          <tr>
+            <td style="background:#1428A0;height:3px;"></td>
+          </tr>
+
+          <!-- Main content card -->
+          <tr>
+            <td style="background:#FFFFFF;padding:40px 32px;">
+
+              <!-- Subject line as heading -->
+              <p style="font-size:11px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:#1428A0;margin-bottom:12px;">
+                Message from Weka Soko
+              </p>
+              <h1 style="font-family:'Outfit',Arial,sans-serif;font-size:24px;font-weight:800;color:#1D1D1D;letter-spacing:-0.02em;margin-bottom:24px;line-height:1.2;">
+                ${subject}
+              </h1>
+
+              <!-- Divider -->
+              <div style="height:1px;background:#E0E0E0;margin-bottom:28px;"></div>
+
+              <!-- Body text -->
+              <div style="font-size:15px;line-height:1.85;color:#535353;white-space:pre-wrap;">
+${text.replace(/</g, "&lt;").replace(/>/g, "&gt;")}
+              </div>
+
+              <!-- CTA area -->
+              <div style="margin-top:36px;padding-top:28px;border-top:1px solid #E0E0E0;">
+                <a href="https://weka-soko.vercel.app" 
+                   style="display:inline-block;background:#1428A0;color:#FFFFFF;font-family:'Outfit',Arial,sans-serif;font-size:13px;font-weight:700;letter-spacing:0.02em;padding:12px 28px;text-decoration:none;">
+                  Visit Weka Soko →
+                </a>
+              </div>
+
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="background:#F4F4F4;padding:24px 32px;border-top:1px solid #E0E0E0;">
+              <table width="100%" cellpadding="0" cellspacing="0" role="presentation">
+                <tr>
+                  <td>
+                    <p style="font-size:11px;color:#767676;line-height:1.7;margin:0;">
+                      <strong style="color:#1D1D1D;">Weka Soko</strong> · Kenya's Smartest Resell Platform<br>
+                      This is a transactional email sent to ${to}<br>
+                      <a href="mailto:${fromEmail}?subject=Unsubscribe" style="color:#767676;">Unsubscribe</a>
+                      &nbsp;·&nbsp;
+                      <a href="mailto:support@wekasoko.co.ke" style="color:#767676;">Support</a>
+                      &nbsp;·&nbsp;
+                      <a href="https://weka-soko.vercel.app" style="color:#767676;">wekasoko.co.ke</a>
+                    </p>
+                  </td>
+                  <td align="right" style="vertical-align:top;">
+                    <span style="font-size:18px;font-weight:800;color:#1D1D1D;font-family:'Outfit',Arial,sans-serif;letter-spacing:-0.01em;">
+                      Weka<span style="color:#1428A0;">Soko</span>
+                    </span>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- Bottom accent bar -->
+          <tr>
+            <td style="background:#1428A0;height:2px;"></td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+
+</body>
+</html>`;
+
     const res = await fetch("https://api.sendgrid.com/v3/mail/send", {
       method: "POST",
       headers: { Authorization: `Bearer ${process.env.SENDGRID_API_KEY}`, "Content-Type": "application/json" },
@@ -33,7 +142,10 @@ async function sendEmail(to, name, subject, text) {
           click_tracking: { enable: true },
           open_tracking: { enable: true },
         },
-        content: [{ type: "text/plain", value: text }, { type: "text/html", value: html }],
+        content: [
+          { type: "text/plain", value: text },
+          { type: "text/html", value: html },
+        ],
       }),
     });
     if (!res.ok) { const e = await res.text(); console.error("[Email] SendGrid error:", res.status, e); }
