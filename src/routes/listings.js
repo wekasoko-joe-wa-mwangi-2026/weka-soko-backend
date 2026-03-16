@@ -212,6 +212,37 @@ router.post("/", requireAuth, requireSeller, upload.array("photos", 8), async (r
       return listing;
     });
     res.status(201).json(result);
+
+    // ── Notify buyers who have matching requests ───────────────────────────
+    // Run async so it doesn't slow down the listing post response
+    (async () => {
+      try {
+        const { rows: matches } = await query(
+          `SELECT DISTINCT r.user_id, r.title, r.id AS request_id
+           FROM buyer_requests r
+           WHERE r.status = 'active'
+           AND r.user_id != $1
+           AND (
+             $2 ILIKE '%' || r.title || '%'
+             OR r.title ILIKE '%' || $2 || '%'
+             OR r.description ILIKE '%' || $2 || '%'
+             OR ($3::varchar IS NOT NULL AND r.county ILIKE $3)
+           )`,
+          [req.user.id, result.title, result.county || null]
+        );
+        for (const match of matches) {
+          await query(
+            `INSERT INTO notifications (user_id, type, title, body, data)
+             VALUES ($1, 'request_match', '🛒 A listing matches your request!', $2, $3)`,
+            [
+              match.user_id,
+              `"${result.title}" was just listed — it may match what you're looking for: "${match.title}"`,
+              JSON.stringify({ listing_id: result.id, request_id: match.request_id })
+            ]
+          ).catch(() => {});
+        }
+      } catch (e) { /* non-critical */ }
+    })();
   } catch (err) { next(err); }
 });
 
