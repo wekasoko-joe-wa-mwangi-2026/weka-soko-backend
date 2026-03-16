@@ -29,7 +29,7 @@ async function runMigration() {
       email_verify_token VARCHAR(64),
       email_verify_expires TIMESTAMPTZ,
       is_suspended BOOLEAN DEFAULT FALSE,
-  admin_level VARCHAR(20) DEFAULT NULL CHECK (admin_level IN ('viewer','moderator','manager','super')),
+      admin_level VARCHAR(20) DEFAULT NULL CHECK (admin_level IN ('viewer','moderator','manager','super')),
       violation_count INT DEFAULT 0,
       whatsapp_phone VARCHAR(20),
       mpesa_phone VARCHAR(20),
@@ -41,6 +41,8 @@ async function runMigration() {
       is_online BOOLEAN DEFAULT FALSE,
       response_rate NUMERIC(5,2) DEFAULT NULL,
       avg_response_hours NUMERIC(6,2) DEFAULT NULL,
+      avg_rating NUMERIC(3,2) DEFAULT NULL,
+      review_count INT DEFAULT 0,
       created_at TIMESTAMPTZ DEFAULT NOW(),
       updated_at TIMESTAMPTZ DEFAULT NOW()
     );`);
@@ -56,6 +58,9 @@ async function runMigration() {
     await addCol("users","email_verify_expires","TIMESTAMPTZ");
     await addCol("users","response_rate","NUMERIC(5,2) DEFAULT NULL");
     await addCol("users","avg_response_hours","NUMERIC(6,2) DEFAULT NULL");
+    await addCol("users","avg_rating","NUMERIC(3,2) DEFAULT NULL");
+    await addCol("users","review_count","INT DEFAULT 0");
+    await addCol("users","admin_level","VARCHAR(20) DEFAULT NULL");
 
     // ── LISTINGS ──────────────────────────────────────────────────────────────
     await client.query(`CREATE TABLE IF NOT EXISTS listings (
@@ -241,23 +246,38 @@ async function runMigration() {
     );`);
 
     // ── REVIEWS ───────────────────────────────────────────────────────────────
-    // Reviews are written after a transaction completes:
-    // - Seller reviews buyer (after listing is marked sold / escrow released)
-    // - Buyer reviews seller (after listing is marked sold / escrow released)
     await client.query(`CREATE TABLE IF NOT EXISTS reviews (
       id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
       listing_id UUID NOT NULL REFERENCES listings(id) ON DELETE CASCADE,
       reviewer_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      reviewee_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      reviewer_role VARCHAR(10) NOT NULL, -- 'buyer' or 'seller'
-      rating SMALLINT NOT NULL CHECK (rating BETWEEN 1 AND 5),
+      reviewed_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      reviewer_role VARCHAR(10) NOT NULL,
+      rating INT NOT NULL CHECK (rating BETWEEN 1 AND 5),
       comment TEXT,
+      is_public BOOLEAN DEFAULT TRUE,
       created_at TIMESTAMPTZ DEFAULT NOW(),
       UNIQUE(listing_id, reviewer_id)
     );`);
 
-    await client.query(`CREATE INDEX IF NOT EXISTS idx_reviews_reviewee ON reviews(reviewee_id)`).catch(()=>{});
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_reviews_reviewed ON reviews(reviewed_user_id)`).catch(()=>{});
     await client.query(`CREATE INDEX IF NOT EXISTS idx_reviews_listing ON reviews(listing_id)`).catch(()=>{});
+
+    // ── BUYER REQUESTS (What Buyers Want) ─────────────────────────────────────
+    await client.query(`CREATE TABLE IF NOT EXISTS buyer_requests (
+      id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+      user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      title VARCHAR(120) NOT NULL,
+      description TEXT NOT NULL,
+      budget NUMERIC(12,2),
+      county VARCHAR(60),
+      status VARCHAR(20) DEFAULT 'active',
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    );`);
+
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_buyer_requests_user ON buyer_requests(user_id)`).catch(()=>{});
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_buyer_requests_status ON buyer_requests(status)`).catch(()=>{});
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_buyer_requests_county ON buyer_requests(county)`).catch(()=>{});
 
     // ── INDEXES ───────────────────────────────────────────────────────────────
     await client.query(`CREATE INDEX IF NOT EXISTS idx_listings_status ON listings(status)`).catch(()=>{});
@@ -270,7 +290,7 @@ async function runMigration() {
     await client.query(`CREATE INDEX IF NOT EXISTS idx_reports_listing ON listing_reports(listing_id)`).catch(()=>{});
     await client.query(`CREATE INDEX IF NOT EXISTS idx_reports_status ON listing_reports(status)`).catch(()=>{});
 
-    // Search vector
+    // ── SEARCH VECTOR ─────────────────────────────────────────────────────────
     await client.query(`CREATE INDEX IF NOT EXISTS idx_listings_search ON listings USING GIN(search_vector)`).catch(()=>{});
     await client.query(`
       CREATE OR REPLACE FUNCTION listings_search_update() RETURNS trigger AS $$
@@ -293,7 +313,6 @@ async function runMigration() {
     `).catch(()=>{});
 
     // ── BACKFILLS ─────────────────────────────────────────────────────────────
-    // anon_tag for users missing one
     await client.query(`
       UPDATE users SET anon_tag = CONCAT(
         (ARRAY['Swift','Bold','Sharp','Bright','Keen','Wise','Calm','Fierce','Sleek','Prime'])[1+(abs(hashtext(id::text))%10)],
@@ -302,7 +321,6 @@ async function runMigration() {
       ) WHERE anon_tag IS NULL
     `).catch(()=>{});
 
-    // listing_anon_tag backfill
     await client.query(`
       UPDATE listings SET listing_anon_tag =
         (ARRAY['Swift','Bold','Sharp','Bright','Keen','Wise','Calm','Fierce','Sleek','Prime'])[1+(abs(hashtext(id::text))%10)] ||
@@ -311,31 +329,10 @@ async function runMigration() {
       WHERE listing_anon_tag IS NULL
     `).catch(()=>{});
 
-    // county backfill: extract from location text for existing rows
     await client.query(`
       UPDATE listings SET county = TRIM(SPLIT_PART(location, ',', -1))
       WHERE county IS NULL AND location IS NOT NULL AND location LIKE '%,%'
     `).catch(()=>{});
-
-    // ── REVIEWS ───────────────────────────────────────────────────────────────
-    await client.query(`CREATE TABLE IF NOT EXISTS reviews (
-      id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-      listing_id UUID NOT NULL REFERENCES listings(id) ON DELETE CASCADE,
-      reviewer_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      reviewed_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      reviewer_role VARCHAR(10) NOT NULL,  -- 'buyer' or 'seller'
-      rating INT NOT NULL CHECK (rating BETWEEN 1 AND 5),
-      comment TEXT,
-      is_public BOOLEAN DEFAULT TRUE,
-      created_at TIMESTAMPTZ DEFAULT NOW(),
-      UNIQUE(listing_id, reviewer_id)
-    );`);
-    await client.query(`CREATE INDEX IF NOT EXISTS idx_reviews_reviewed ON reviews(reviewed_user_id)`).catch(()=>{});
-    await client.query(`CREATE INDEX IF NOT EXISTS idx_reviews_listing ON reviews(listing_id)`).catch(()=>{});
-
-    // Add average_rating to users
-    await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS avg_rating NUMERIC(3,2) DEFAULT NULL`).catch(()=>{});
-    await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS review_count INT DEFAULT 0`).catch(()=>{});
 
     await client.query("COMMIT");
     console.log("✅ DB migration complete");
@@ -349,5 +346,3 @@ async function runMigration() {
 }
 
 module.exports = { runMigration };
-// This file is already complete — appending reviews + image management tables
-
