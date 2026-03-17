@@ -94,6 +94,12 @@ async function runMigration() {
     await addCol("listings","county","VARCHAR(60)");
     await addCol("listings","expires_at","TIMESTAMPTZ DEFAULT NOW() + INTERVAL '75 days'");
     await addCol("listings","expiry_warned","BOOLEAN DEFAULT FALSE");
+    await addCol("listings","moderation_note","TEXT");
+    await addCol("listings","reviewed_by","UUID REFERENCES users(id) ON DELETE SET NULL");
+    await addCol("listings","reviewed_at","TIMESTAMPTZ");
+    await addCol("listings","moderation_note","TEXT");
+    await addCol("listings","moderation_reviewed_at","TIMESTAMPTZ");
+    await addCol("listings","moderation_reviewed_by","UUID REFERENCES users(id) ON DELETE SET NULL");
 
     // Backfill expires_at for existing listings that don't have one
     await client.query(`UPDATE listings SET expires_at = created_at + INTERVAL '75 days' WHERE expires_at IS NULL`).catch(()=>{});
