@@ -15,6 +15,7 @@ async function runMigration() {
     await client.query(`DO $$ BEGIN CREATE TYPE user_role AS ENUM ('buyer','seller','admin'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;`);
     await client.query(`DO $$ BEGIN CREATE TYPE violation_severity AS ENUM ('warning','flagged','suspended'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;`);
     await client.query(`DO $$ BEGIN CREATE TYPE listing_status AS ENUM ('active', 'locked', 'sold', 'deleted', 'pending_review'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;`);
+    await client.query(`ALTER TYPE listing_status ADD VALUE IF NOT EXISTS 'pending_review'`).catch(()=>{});
 
     // ── USERS ─────────────────────────────────────────────────────────────────
     await client.query(`CREATE TABLE IF NOT EXISTS users (
