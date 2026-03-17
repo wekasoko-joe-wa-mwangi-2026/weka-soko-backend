@@ -1,21 +1,14 @@
-const { OpenAI } = require("openai");
 const { query } = require("../db/pool");
 
-let openai;
-if (process.env.OPENAI_API_KEY) {
-  openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-} else {
-  console.warn("⚠️ OPENAI_API_KEY is missing. AI moderation is disabled. Falling back to regex.");
-}
-
-// src/services/moderation.service.js — Weka Soko Contact Info Moderation Engine
-// Covers every known method users attempt to share contact info before unlock
+// src/services/moderation.service.js — Weka Soko "Super-Regex" Moderation Engine
+// This version is 100% free and catches sneaky contact sharing without an LLM.
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function normalize(text) {
+  if (!text) return "";
   return text
     .toLowerCase()
-    // Word-to-digit conversions (must do before l33t so "zero" → 0)
+    // Word-to-digit conversions (English)
     .replace(/\bzero\b/g, "0").replace(/\bone\b/g, "1").replace(/\btwo\b/g, "2")
     .replace(/\bthree\b/g, "3").replace(/\bfour\b/g, "4").replace(/\bfive\b/g, "5")
     .replace(/\bsix\b/g, "6").replace(/\bseven\b/g, "7").replace(/\beight\b/g, "8")
@@ -24,7 +17,7 @@ function normalize(text) {
     .replace(/\bsita\b/g, "6").replace(/\bsaba\b/g, "7").replace(/\bnane\b/g, "8")
     .replace(/\btisa\b/g, "9").replace(/\bmoja\b/g, "1").replace(/\bmbili\b/g, "2")
     .replace(/\btatu\b/g, "3").replace(/\bne\b/g, "4").replace(/\btano\b/g, "5")
-    // L33tspeak
+    // Visual Lookalikes (l33tspeak)
     .replace(/o/g, "0").replace(/i/g, "1").replace(/l/g, "1")
     .replace(/e/g, "3").replace(/a/g, "4").replace(/s/g, "5")
     .replace(/g/g, "6").replace(/t/g, "7").replace(/b/g, "8")
@@ -41,7 +34,6 @@ function digitsOnly(text) {
 
 // Check if a string, after normalization, contains a Kenyan phone number
 function containsKEPhone(normalizedText) {
-  // After normalization all numbers are digits; look for 07xx or 01xx (10 digits) or 2547xx (12)
   const digits = digitsOnly(normalizedText);
   // Kenyan phone: 07XXXXXXXX or 01XXXXXXXX (10 digits) or 2547XXXXXXXX / 2541XXXXXXXX (12)
   return /07\d{8}|01\d{8}|2547\d{8}|2541\d{8}/.test(digits) ||
@@ -53,7 +45,7 @@ function containsKEPhone(normalizedText) {
 
 // Check for email-like pattern
 function containsEmail(text) {
-  // Standard email with actual @ symbol (not the letters a and t)
+  // Standard email with actual @ symbol
   if (/[a-zA-Z0-9._%+\-]+[@＠][a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/.test(text)) return true;
   // "name at domain dot com" — only when "at" and "dot" are standalone words
   if (/\b\w{2,}\s+at\s+\w{2,}\s+dot\s+\w{2,}\b/i.test(text)) return true;
@@ -129,7 +121,6 @@ const RAW_PATTERNS = [
     id: "mixed_word_digit",
     label: "Phone number (mixed digits/words)",
     test: (t) => {
-      // Replace word numbers with digits then check for 10-digit sequence
       const cleaned = t.toLowerCase()
         .replace(/\bzero\b/g,"0").replace(/\bone\b/g,"1").replace(/\btwo\b/g,"2")
         .replace(/\bthree\b/g,"3").replace(/\bfour\b/g,"4").replace(/\bfive\b/g,"5")
@@ -138,7 +129,6 @@ const RAW_PATTERNS = [
         .replace(/\bsita\b/g,"6").replace(/\bsaba\b/g,"7").replace(/\bnane\b/g,"8")
         .replace(/\btisa\b/g,"9").replace(/\bmoja\b/g,"1").replace(/\bmbili\b/g,"2")
         .replace(/\btatu\b/g,"3").replace(/\btano\b/g,"5");
-      // Now check for phone-like patterns with separators
       return /\d[\s\.\-,]*\d[\s\.\-,]*\d[\s\.\-,]*\d[\s\.\-,]*\d[\s\.\-,]*\d[\s\.\-,]*\d[\s\.\-,]*\d[\s\.\-,]*\d[\s\.\-,]*\d/.test(cleaned);
     },
   },
@@ -158,9 +148,6 @@ const RAW_PATTERNS = [
 
 // ── Normalized patterns (applied after full normalization) ────────────────────
 const NORM_PATTERNS = [
-  // After normalization: word numbers → digits, l33t → digits, separators removed
-  // Only run if the raw text has at least 5 actual digits — otherwise l33t converts
-  // every letter to a digit and normal sentences look like phone numbers
   {
     id: "norm_ke_phone",
     label: "Phone number (normalized)",
@@ -169,16 +156,11 @@ const NORM_PATTERNS = [
       return containsKEPhone(n);
     },
   },
-  // Email after normalization: only flag if it looks like email@domain.tld after l33t
-  // (Raw email detection already handles standard emails via containsEmail)
-  // Only catch "word AT word DOT word" converted to digits: 47 = "at" after l33t
   {
     id: "norm_email",
     label: "Email (normalized)",
     test: (n) => {
       // After l33t: a→4, t→7, so "at" → "47"; "dot" → "307"
-      // Match: wordChars + "47" + wordChars + "307" + letters  (word@domain.tld)
-      // Must be tight pattern to avoid false positives
       return /[a-z0-9]{2,}47[a-z0-9]{2,}(307|\.|0)[a-z]{2,4}$/.test(n) && n.length < 60;
     },
   },
@@ -193,7 +175,7 @@ function detectContactInfo(text) {
     if (p.test(text)) return { blocked: true, reason: p.label, patternId: p.id };
   }
 
-  // Test normalized text (pass original text too so patterns can check raw digit count)
+  // Test normalized text
   const norm = normalize(text);
   for (const p of NORM_PATTERNS) {
     if (p.test(norm, text)) return { blocked: true, reason: p.label, patternId: p.id };
@@ -202,15 +184,18 @@ function detectContactInfo(text) {
   return { blocked: false };
 }
 
+// AI Fallback (Now just calls the regex version for free)
+async function detectContactInfoAI(text) {
+  return detectContactInfo(text);
+}
+
 // ── Listing text scan (for ad descriptions, titles, location fields) ──────────
-// Less aggressive — only blocks clear phone/email/url, not social refs
 const LISTING_PATTERNS = [
   { id: "ke_phone", label: "Kenyan phone number", test: (t) => /0[17]\d[\s\.\-]*\d{7}/.test(t) },
   { id: "intl_phone", label: "International phone", test: (t) => /(\+|00)254[17]\d{8}/.test(t) },
   { id: "email", label: "Email address", test: containsEmail },
   { id: "url", label: "Website link", test: (t) => /https?:\/\/|www\.[a-z0-9]+\.[a-z]{2,}/i.test(t) },
   { id: "whatsapp", label: "WhatsApp number/link", test: (t) => /wa\.me\/|whatsapp\.com/i.test(t) },
-  // Mixed word+digit phone (same as above but stricter threshold)
   {
     id: "word_digit_phone", label: "Phone number in listing",
     test: (t) => {
@@ -232,7 +217,6 @@ function detectListingContactInfo(text) {
   return { blocked: false };
 }
 
-// Scan all text fields of a listing object
 function scanListingForContact(listing) {
   const fields = {
     title: listing.title,
@@ -246,40 +230,6 @@ function scanListingForContact(listing) {
     if (r.blocked) return { ...r, field };
   }
   return { blocked: false };
-}
-
-// ── Severity escalation ───────────────────────────────────────────────────────
-async function detectContactInfoAI(text) {
-  if (!openai) {
-    return detectContactInfo(text);
-  }
-  try {
-    const response = await openai.chat.completions.create({
-      model: "gpt-4.1-mini",
-      messages: [
-        {
-          role: "system",
-          content: "You are an AI assistant designed to detect attempts to share contact information (phone numbers, emails, social media handles, physical addresses, or invitations to move off-platform) in chat messages. Respond with \'YES\' if contact information is detected, and \'NO\' otherwise. Be strict in your detection, even for \'sneaky\' attempts (e.g., \'zero seven one two...\', \'email at gmail dot com\', \'fb.me/user\', \'meet me at [address]\')."
-        },
-        {
-          role: "user",
-          content: `Analyze the following message for contact information sharing: \"${text}\"`
-        }
-      ],
-      temperature: 0.1,
-      max_tokens: 5,
-    });
-
-    const result = response.choices[0].message.content.trim().toUpperCase();
-    if (result === "YES") {
-      return { blocked: true, reason: "AI detected contact info", patternId: "ai_contact_info" };
-    }
-    return { blocked: false };
-  } catch (error) {
-    console.error("AI moderation error:", error);
-    // Fallback to existing regex detection if AI fails
-    return detectContactInfo(text);
-  }
 }
 
 function getSeverity(violationCount) {
