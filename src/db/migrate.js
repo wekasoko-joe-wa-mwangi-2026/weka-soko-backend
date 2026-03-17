@@ -17,7 +17,7 @@ CREATE EXTENSION IF NOT EXISTS "pg_trgm"; -- for search
 
 -- ─── ENUMS ──────────────────────────────────────────
 CREATE TYPE user_role AS ENUM ('buyer', 'seller', 'admin');
-CREATE TYPE listing_status AS ENUM ('active', 'locked', 'sold', 'deleted');
+CREATE TYPE listing_status AS ENUM ('active', 'locked', 'sold', 'deleted', 'pending_review');
 CREATE TYPE payment_type AS ENUM ('unlock', 'escrow');
 CREATE TYPE payment_status AS ENUM ('pending', 'confirmed', 'failed', 'refunded');
 CREATE TYPE escrow_status AS ENUM ('holding', 'released', 'disputed', 'refunded');
