@@ -21,6 +21,7 @@ const paymentRoutes = require("./routes/payments");
 const chatRoutes = require("./routes/chat");
 const adminRoutes = require("./routes/admin");
 const requestsRoutes = require("./routes/requests");
+const chatViolationsRoutes = require("./routes/chat_violations");
 const notificationRoutes = require("./routes/notifications");
 const { sendEmail } = require("./services/email.service");
 const statsRoutes = require("./routes/stats");
@@ -171,15 +172,36 @@ io.on("connection", (socket) => {
             await query(`UPDATE users SET is_suspended = TRUE WHERE id = $1`, [socket.user.id]);
           }
 
-          const { rows: savedMsg } = await query(
-            `INSERT INTO chat_messages (listing_id, sender_id, receiver_id, body, is_blocked, block_reason)
-             VALUES ($1, $2, $3, $4, TRUE, $5) RETURNING id`,
-            [listingId, socket.user.id, listing.seller_id === socket.user.id ? listing.locked_buyer_id : listing.seller_id, body, violation.reason]
+          // First, find or create the chat thread
+          let chatThreadId;
+          const { rows: threadRows } = await query(
+            `SELECT id FROM chat_threads WHERE listing_id = $1 AND (buyer_id = $2 OR seller_id = $2)`,
+            [listingId, socket.user.id]
           );
 
+          if (threadRows.length > 0) {
+            chatThreadId = threadRows[0].id;
+          } else {
+            // This should ideally not happen if a chat message is being sent, but as a fallback
+            const { rows: newThreadRows } = await query(
+              `INSERT INTO chat_threads (listing_id, buyer_id, seller_id) VALUES ($1, $2, $3) RETURNING id`,
+              [listingId, socket.user.id, listing.seller_id]
+            );
+            chatThreadId = newThreadRows[0].id;
+          }
+
+          // Insert the blocked message into chat_messages (optional, for sender's view)
           await query(
-            `INSERT INTO chat_violations (user_id, listing_id, message_id, reason, severity) VALUES ($1,$2,$3,$4,$5)`,
-            [socket.user.id, listingId, savedMsg[0].id, violation.reason, severity]
+            `INSERT INTO chat_messages (chat_thread_id, sender_id, body, is_blocked, block_reason)
+             VALUES ($1, $2, $3, TRUE, $4)`,
+            [chatThreadId, socket.user.id, body, violation.reason]
+          );
+
+          // Insert into chat_violations with the new schema
+          await query(
+            `INSERT INTO chat_violations (sender_id, chat_thread_id, message_content, violation_type, reason, status)
+             VALUES ($1, $2, $3, $4, $5, $6)`,
+            [socket.user.id, chatThreadId, body, "contact_info", violation.reason, "pending"]
           );
 
           // ── Send violation notification IN CHAT (appears as system message) ──
@@ -504,6 +526,7 @@ app.set("io", io);
 app.use("/api/admin", adminRoutes);
 app.use("/api/notifications", notificationRoutes);
 app.use("/api/requests", requestsRoutes);
+app.use("/api/admin/chat-violations", chatViolationsRoutes);
 app.use("/api/stats", statsRoutes);
 app.use("/api/vouchers", voucherRoutes);
 app.use("/api/reviews", reviewRoutes);
