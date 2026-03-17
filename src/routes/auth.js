@@ -12,8 +12,9 @@ const { sendEmail } = require("../services/email.service");
 const router = express.Router();
 
 const FRONTEND = process.env.FRONTEND_URL || "https://weka-soko.vercel.app";
+const ADMIN_URL = process.env.ADMIN_URL || "https://weka-soko-admin.vercel.app";
 
-// ── Anon tag generator ────────────────────────────────────────────────────────
+// ── Anon tag generator ──────────────────────────────────────────────────────
 const ANON_ADJ  = ["Swift","Bold","Sharp","Bright","Keen","Wise","Calm","Fierce","Sleek","Prime","Epic","Fresh","Solid","Grand","Noble","Elite","Savvy","Agile","Brave","Deft"];
 const ANON_NOUN = ["Falcon","Cheetah","Baobab","Serval","Mamba","Eagle","Kiboko","Tembo","Duma","Simba","Faru","Tawi","Nguvu","Imara","Jasiri","Hodari","Makini","Shujaa","Moran","Paka"];
 function generateAnonTag() {
@@ -27,10 +28,10 @@ function signToken(user) {
   });
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+// ── Email verification helper ───────────────────────────────────────────────
 async function sendVerificationEmail(userId, email, name) {
   const token = crypto.randomBytes(32).toString("hex");
-  const expires = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24h
+  const expires = new Date(Date.now() + 24*60*60*1000);
   await query(
     `UPDATE users SET email_verify_token=$1, email_verify_expires=$2 WHERE id=$3`,
     [token, expires, userId]
@@ -43,7 +44,7 @@ async function sendVerificationEmail(userId, email, name) {
   ).catch(e => console.error("[Auth] Verify email failed:", e.message));
 }
 
-// ── POST /api/auth/register ───────────────────────────────────────────────────
+// ── POST /api/auth/register ─────────────────────────────────────────────────
 router.post(
   "/register",
   [
@@ -91,14 +92,14 @@ router.post(
   }
 );
 
-// ── GET /api/auth/verify-email ────────────────────────────────────────────────
+// ── GET /api/auth/verify-email ──────────────────────────────────────────────
 router.get("/verify-email", async (req, res, next) => {
   try {
     const { token } = req.query;
     if (!token) return res.status(400).json({ error: "Token required" });
 
     const { rows } = await query(
-      `SELECT id, name, email, email_verify_expires FROM users WHERE email_verify_token=$1`,
+      `SELECT id,name,email,email_verify_expires FROM users WHERE email_verify_token=$1`,
       [token]
     );
     if (!rows.length) return res.status(400).json({ error: "Invalid or already used verification link" });
@@ -114,7 +115,7 @@ router.get("/verify-email", async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-// ── POST /api/auth/resend-verification ───────────────────────────────────────
+// ── POST /api/auth/resend-verification ─────────────────────────────────────
 router.post("/resend-verification", requireAuth, async (req, res, next) => {
   try {
     const { rows } = await query(`SELECT id,name,email,is_verified FROM users WHERE id=$1`, [req.user.id]);
@@ -125,7 +126,7 @@ router.post("/resend-verification", requireAuth, async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-// ── POST /api/auth/login ──────────────────────────────────────────────────────
+// ── POST /api/auth/login ────────────────────────────────────────────────────
 router.post(
   "/login",
   [body("email").isEmail().normalizeEmail(), body("password").notEmpty()],
@@ -155,11 +156,12 @@ router.post(
   }
 );
 
-// ── GET /api/auth/me ──────────────────────────────────────────────────────────
+// ── GET /api/auth/me ────────────────────────────────────────────────────────
 router.get("/me", requireAuth, async (req, res, next) => {
   try {
     const { rows } = await query(
-      `SELECT id,name,email,role,anon_tag,phone,avatar_url,is_verified,response_rate,avg_response_hours,account_status,created_at
+      `SELECT id,name,email,role,anon_tag,phone,avatar_url,is_verified,
+              response_rate,avg_response_hours,account_status,whatsapp_phone,created_at
        FROM users WHERE id=$1`,
       [req.user.id]
     );
@@ -168,20 +170,21 @@ router.get("/me", requireAuth, async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-// ── PATCH /api/auth/profile ───────────────────────────────────────────────────
+// ── PATCH /api/auth/profile ─────────────────────────────────────────────────
 router.patch("/profile", requireAuth, async (req, res, next) => {
   try {
-    const { name, phone } = req.body;
+    const { name, phone, whatsapp_phone } = req.body;
     const { rows } = await query(
-      `UPDATE users SET name=COALESCE($1,name),phone=COALESCE($2,phone),updated_at=NOW()
-       WHERE id=$3 RETURNING id,name,email,role,anon_tag,phone`,
-      [name||null, phone||null, req.user.id]
+      `UPDATE users SET name=COALESCE($1,name),phone=COALESCE($2,phone),
+       whatsapp_phone=COALESCE($3,whatsapp_phone),updated_at=NOW()
+       WHERE id=$4 RETURNING id,name,email,role,anon_tag,phone,whatsapp_phone`,
+      [name||null, phone||null, whatsapp_phone||null, req.user.id]
     );
     res.json(rows[0]);
   } catch (err) { next(err); }
 });
 
-// ── POST /api/auth/change-password ───────────────────────────────────────────
+// ── POST /api/auth/change-password ──────────────────────────────────────────
 router.post("/change-password", requireAuth, async (req, res, next) => {
   try {
     const { currentPassword, newPassword } = req.body;
@@ -199,7 +202,7 @@ router.post("/change-password", requireAuth, async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-// ── PATCH /api/auth/role ──────────────────────────────────────────────────────
+// ── PATCH /api/auth/role ────────────────────────────────────────────────────
 router.patch("/role", requireAuth, async (req, res, next) => {
   try {
     const { role } = req.body;
@@ -216,7 +219,7 @@ router.patch("/role", requireAuth, async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-// ── DELETE /api/auth/account ──────────────────────────────────────────────────
+// ── DELETE /api/auth/account ────────────────────────────────────────────────
 router.delete("/account", requireAuth, async (req, res, next) => {
   try {
     const uid = req.user.id;
@@ -228,40 +231,42 @@ router.delete("/account", requireAuth, async (req, res, next) => {
       await client.query(`UPDATE listings SET locked_buyer_id=NULL WHERE locked_buyer_id=$1`, [uid]).catch(()=>{});
       await client.query(`DELETE FROM chat_messages WHERE sender_id=$1 OR receiver_id=$1`, [uid]);
       await client.query(`DELETE FROM listing_reports WHERE reporter_id=$1`, [uid]).catch(()=>{});
+      await client.query(`DELETE FROM buyer_requests WHERE user_id=$1`, [uid]).catch(()=>{});
       await client.query(`DELETE FROM listings WHERE seller_id=$1`, [uid]);
       await client.query(`DELETE FROM chat_violations WHERE user_id=$1`, [uid]).catch(()=>{});
       await client.query(`DELETE FROM notifications WHERE user_id=$1`, [uid]).catch(()=>{});
-      await client.query(`DELETE FROM reviews WHERE reviewer_id=$1 OR reviewed_user_id=$1`, [uid]).catch(()=>{});
-      // Clear listing_photos for this seller's listings
-      await client.query(`DELETE FROM listing_photos WHERE listing_id IN (SELECT id FROM listings WHERE seller_id=$1)`, [uid]).catch(()=>{});
-      // Set listing status to deleted before dropping FKs
-      await client.query(`UPDATE listings SET locked_buyer_id=NULL, seller_id=NULL WHERE seller_id=$1`, [uid]).catch(()=>{});
-      await client.query(`UPDATE escrows SET buyer_id=NULL WHERE buyer_id=$1`, [uid]).catch(()=>{});
-      await client.query(`UPDATE escrows SET seller_id=NULL WHERE seller_id=$1`, [uid]).catch(()=>{});
       await client.query(`DELETE FROM users WHERE id=$1`, [uid]);
     });
     res.json({ ok: true, message: "Account permanently deleted." });
   } catch (err) { console.error("[Delete account]", err.message); next(err); }
 });
 
-// ── POST /api/auth/forgot-password ───────────────────────────────────────────
-// Strict rate: max 3 resets per email per hour (enforced in index.js via forgotLimiter)
+// ── POST /api/auth/forgot-password ─────────────────────────────────────────
+// Works for both frontend users AND admin users
+// Rate limited in index.js via forgotLimiter (5 per IP per hour)
 router.post("/forgot-password", async (req, res, next) => {
   try {
-    const { email } = req.body;
+    const { email, admin } = req.body;  // admin=true sends link to admin URL
     if (!email) return res.status(400).json({ error: "Email is required" });
 
     const { rows } = await query(
-      `SELECT id,name,email,account_status FROM users WHERE email=$1`,
+      `SELECT id,name,email,account_status,role FROM users WHERE email=$1`,
       [email.toLowerCase().trim()]
     );
-    // Always respond identically — never leak whether email exists
+
+    // Always respond the same — never leak whether email exists
     if (!rows.length || rows[0].account_status === "deleted") {
       return res.json({ ok: true, message: "If that email exists, a reset link has been sent." });
     }
+
     const user = rows[0];
 
-    // Throttle: max 3 non-expired, unused tokens in last hour
+    // For admin panel resets: only allow admin users
+    if (admin && user.role !== "admin") {
+      return res.json({ ok: true, message: "If that email exists, a reset link has been sent." });
+    }
+
+    // Throttle: max 3 unused tokens per user per hour
     const { rows: recent } = await query(
       `SELECT COUNT(*) FROM password_resets
        WHERE user_id=$1 AND used=FALSE AND created_at > NOW()-INTERVAL '1 hour'`,
@@ -272,22 +277,26 @@ router.post("/forgot-password", async (req, res, next) => {
     }
 
     const token = crypto.randomBytes(32).toString("hex");
-    const expiresAt = new Date(Date.now() + 60*60*1000);
+    const expiresAt = new Date(Date.now() + 60*60*1000); // 1 hour
     await query(`UPDATE password_resets SET used=TRUE WHERE user_id=$1 AND used=FALSE`, [user.id]);
     await query(`INSERT INTO password_resets (user_id,token,expires_at) VALUES ($1,$2,$3)`, [user.id, token, expiresAt]);
 
-    const resetLink = `${FRONTEND}?reset_token=${token}`;
+    // Admin resets go to admin URL, regular users go to frontend
+    const baseUrl = (admin && user.role === "admin") ? ADMIN_URL : FRONTEND;
+    const resetLink = `${baseUrl}?reset_token=${token}`;
+
     await sendEmail(
       user.email, user.name,
       "🔐 Reset your Weka Soko password",
-      `Hi ${user.name},\n\nYou requested a password reset.\n\nSet a new password here (valid 1 hour):\n${resetLink}\n\nIf you didn't request this, ignore this email. Your password is unchanged.\n\n— Weka Soko`
+      `Hi ${user.name},\n\nYou requested a password reset.\n\nSet a new password here (valid for 1 hour):\n${resetLink}\n\nIf you didn't request this, ignore this email. Your password is unchanged.\n\n— Weka Soko`
     ).catch(e => console.error("[Reset email]", e.message));
 
+    console.log(`[Auth] Password reset sent to ${user.email}`);
     res.json({ ok: true, message: "If that email exists, a reset link has been sent." });
   } catch (err) { next(err); }
 });
 
-// ── POST /api/auth/reset-password ────────────────────────────────────────────
+// ── POST /api/auth/reset-password ──────────────────────────────────────────
 router.post("/reset-password", async (req, res, next) => {
   try {
     const { token, password } = req.body;
@@ -301,16 +310,19 @@ router.post("/reset-password", async (req, res, next) => {
     if (!rows.length) return res.status(400).json({ error: "Invalid or expired reset link" });
     const reset = rows[0];
     if (reset.used) return res.status(400).json({ error: "This reset link has already been used" });
-    if (new Date(reset.expires_at) < new Date()) return res.status(400).json({ error: "Reset link expired. Please request a new one." });
+    if (new Date(reset.expires_at) < new Date()) {
+      return res.status(400).json({ error: "Reset link expired. Please request a new one." });
+    }
 
     const hash = await bcrypt.hash(password, 12);
     await query(`UPDATE users SET password_hash=$1,updated_at=NOW() WHERE id=$2`, [hash, reset.user_id]);
     await query(`UPDATE password_resets SET used=TRUE WHERE id=$1`, [reset.id]);
+
     res.json({ ok: true, message: "Password updated. You can now sign in." });
   } catch (err) { next(err); }
 });
 
-// ── Google OAuth ──────────────────────────────────────────────────────────────
+// ── Google OAuth ────────────────────────────────────────────────────────────
 router.get("/google", (req, res) => {
   const params = new URLSearchParams({
     client_id: process.env.GOOGLE_CLIENT_ID || "",
