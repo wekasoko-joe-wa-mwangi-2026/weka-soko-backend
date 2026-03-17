@@ -195,8 +195,8 @@ router.post("/", requireAuth, requireSeller, upload.array("photos", 8), async (r
 
     const result = await withTransaction(async (client) => {
       const { rows } = await client.query(
-        `INSERT INTO listings (seller_id,title,description,reason_for_sale,category,price,location,county,listing_anon_tag)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+        `INSERT INTO listings (seller_id,title,description,reason_for_sale,category,price,location,county,listing_anon_tag,status)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'pending_review') RETURNING *`,
         [req.user.id, title, description, reason_for_sale, category, parseFloat(price), location, resolvedCounty, genListingTag()]
       );
       const listing = rows[0];
@@ -211,7 +211,12 @@ router.post("/", requireAuth, requireSeller, upload.array("photos", 8), async (r
       } else { listing.photos = []; }
       return listing;
     });
-    res.status(201).json(result);
+
+    // Notify admin of new listing to review (push to admin socket room)
+    const io = req.app?.get("io");
+    if (io) io.to("admin").emit("new_listing_review", { listing_id: result.id, title: result.title });
+
+    res.status(201).json({ ...result, status: "pending_review" });
 
     // ── Notify buyers who have matching requests ───────────────────────────
     // Run async so it doesn't slow down the listing post response
@@ -267,14 +272,22 @@ router.patch("/:id", requireAuth, requireSeller, upload.array("photos", 8), asyn
       });
     }
 
+    // If listing was rejected or had changes requested, re-submit for review on edit
+    const { rows: preEdit } = await query(`SELECT status FROM listings WHERE id=$1`, [id]);
+    const wasRejectedOrPending = ["rejected", "pending_review"].includes(preEdit[0]?.status);
+    const newStatus = wasRejectedOrPending ? "pending_review" : undefined;
+
     const { rows } = await query(
       `UPDATE listings SET
         title=COALESCE($1,title), description=COALESCE($2,description),
         reason_for_sale=COALESCE($3,reason_for_sale), category=COALESCE($4,category),
         price=COALESCE($5,price), location=COALESCE($6,location),
-        county=COALESCE($7,county), updated_at=NOW()
+        county=COALESCE($7,county),
+        status=COALESCE($9,status),
+        moderation_note=CASE WHEN $9='pending_review' THEN NULL ELSE moderation_note END,
+        updated_at=NOW()
        WHERE id=$8 RETURNING *`,
-      [title, description, reason_for_sale, category, price?parseFloat(price):null, location, resolvedCounty||null, id]
+      [title, description, reason_for_sale, category, price?parseFloat(price):null, location, resolvedCounty||null, id, newStatus||null]
     );
 
     // Upload any new photos attached to the edit
