@@ -22,7 +22,6 @@ const { sendEmail } = require("./services/email.service");
 const statsRoutes = require("./routes/stats");
 const voucherRoutes = require("./routes/vouchers");
 const reviewRoutes = require("./routes/reviews");
-const moderationRoutes = require("./routes/admin_moderation");
 
 const app = express();
 const server = http.createServer(app);
@@ -472,7 +471,6 @@ app.use("/api/chat", chatRoutes);
 adminRoutes.setIO(io);
 app.set("io", io);
 app.use("/api/admin", adminRoutes);
-app.use("/api/admin/moderation", moderationRoutes);
 app.use("/api/notifications", notificationRoutes);
 app.use("/api/stats", statsRoutes);
 app.use("/api/vouchers", voucherRoutes);
