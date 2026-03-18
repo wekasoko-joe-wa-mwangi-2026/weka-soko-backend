@@ -51,12 +51,12 @@ router.get("/", optionalAuth, async (req, res, next) => {
     params.push(parseInt(limit), offset);
     const sql = `
       SELECT l.id, l.title, l.category, l.price, l.location, l.county, l.status,
-             l.seller_id, l.is_unlocked, l.view_count, l.interest_count,
+             l.view_count, l.interest_count,
              l.created_at, l.expires_at, l.locked_buyer_id,
              l.listing_anon_tag AS seller_anon,
-             CASE WHEN l.is_unlocked THEN u.name ELSE NULL END AS seller_name,
-             CASE WHEN l.is_unlocked THEN u.phone ELSE NULL END AS seller_phone,
-             CASE WHEN l.is_unlocked THEN u.email ELSE NULL END AS seller_email,
+             CASE WHEN l.is_contact_public THEN u.name ELSE NULL END AS seller_name,
+             CASE WHEN l.is_contact_public THEN u.phone ELSE NULL END AS seller_phone,
+             CASE WHEN l.is_contact_public THEN u.email ELSE NULL END AS seller_email,
              u.response_rate, u.avg_response_hours,
              COALESCE((SELECT json_agg(p.url ORDER BY p.sort_order) FROM listing_photos p WHERE p.listing_id=l.id),'[]'::json) AS photos
              ${searchClause}
@@ -96,6 +96,9 @@ router.get("/buyer/interests", requireAuth, async (req, res, next) => {
        WHERE l.locked_buyer_id=$1 AND l.status!='deleted' ORDER BY l.locked_at DESC NULLS LAST`,
       [req.user.id]
     );
+    rows.forEach(row => {
+      if (!row.is_contact_public) delete row.seller_id;
+    });
     res.json(rows);
   } catch (err) { next(err); }
 });
@@ -194,6 +197,8 @@ router.get("/:id", optionalAuth, async (req, res, next) => {
     if (req.user && req.user.id === listing.seller_id) {
       const { rows: sr } = await query(`SELECT name,phone,email FROM users WHERE id=$1`, [req.user.id]);
       listing.seller_name = sr[0].name; listing.seller_phone = sr[0].phone; listing.seller_email = sr[0].email;
+    } else if (!listing.is_contact_public) {
+      delete listing.seller_id;
     }
     res.json(listing);
   } catch (err) { next(err); }
