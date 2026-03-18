@@ -10,7 +10,7 @@ router.get("/threads/mine", requireAuth, async (req, res, next) => {
     const { rows } = await query(
       `SELECT DISTINCT ON (l.id)
          l.id AS listing_id, l.title, l.price, l.status,
-         l.seller_id, l.is_unlocked, l.locked_buyer_id,
+         l.seller_id, l.is_contact_public, l.locked_buyer_id,
          -- Never show blocked message body in thread preview
          CASE WHEN m.is_blocked THEN '🚫 Message removed' ELSE m.body END AS last_message,
          m.created_at AS last_message_at,
@@ -63,7 +63,7 @@ router.get("/:listingId", requireAuth, async (req, res, next) => {
   try {
     const { listingId } = req.params;
     const { rows: listingRows } = await query(
-      `SELECT seller_id, locked_buyer_id, is_unlocked FROM listings WHERE id = $1`, [listingId]
+      `SELECT seller_id, locked_buyer_id, is_contact_public FROM listings WHERE id = $1`, [listingId]
     );
     if (!listingRows.length) return res.status(404).json({ error: "Listing not found" });
     const l = listingRows[0];

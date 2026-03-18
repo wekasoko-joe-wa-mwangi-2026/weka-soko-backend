@@ -82,7 +82,7 @@ io.on("connection", (socket) => {
   socket.on("join_listing", async (listingId) => {
     try {
       const { rows } = await query(
-        `SELECT seller_id, locked_buyer_id, is_unlocked, listing_anon_tag FROM listings WHERE id = $1`,
+        `SELECT seller_id, locked_buyer_id, is_contact_public, listing_anon_tag FROM listings WHERE id = $1`,
         [listingId]
       );
       if (!rows.length) return socket.emit("error", "Listing not found");
@@ -151,14 +151,14 @@ io.on("connection", (socket) => {
       msgTimestamps.push(now);
 
       const { rows: listingRows } = await query(
-        `SELECT seller_id, locked_buyer_id, is_unlocked FROM listings WHERE id = $1`,
+        `SELECT seller_id, locked_buyer_id, is_contact_public FROM listings WHERE id = $1`,
         [listingId]
       );
       if (!listingRows.length) return;
       const listing = listingRows[0];
 
-      // Moderation (only if not yet unlocked)
-      if (!listing.is_unlocked) {
+      // Moderation (only if contact info not yet revealed via payment)
+      if (!listing.is_contact_public) {
         const violation = detectContactInfo(body);
         if (violation.blocked) {
           const { rows: updated } = await query(
