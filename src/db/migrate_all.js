@@ -98,6 +98,7 @@ async function runMigration() {
     await addCol("listings","moderation_note","TEXT");
     await addCol("listings","reviewed_by","UUID REFERENCES users(id) ON DELETE SET NULL");
     await addCol("listings","reviewed_at","TIMESTAMPTZ");
+    await addCol("listings","is_contact_public","BOOLEAN DEFAULT FALSE");
 
     // ── LISTING PHOTOS ───────────────────────────────────────────────────────
     await client.query(`CREATE TABLE IF NOT EXISTS listing_photos (

@@ -135,7 +135,7 @@ async function handleCallback(body) {
   // Handle post-payment actions based on type
   if (payment.type === "unlock") {
     await query(
-      `UPDATE listings SET is_unlocked = TRUE, unlocked_at = NOW(), status = 'sold' WHERE id = $1`,
+      `UPDATE listings SET is_unlocked = TRUE, unlocked_at = NOW(), status = 'sold', is_contact_public = TRUE WHERE id = $1`,
       [payment.listing_id]
     );
     // Notify both parties
