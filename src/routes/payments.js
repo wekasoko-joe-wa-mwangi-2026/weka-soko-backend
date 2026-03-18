@@ -22,7 +22,7 @@ router.post("/unlock", requireAuth, async (req, res, next) => {
 
     if (listing.seller_id !== req.user.id)
       return res.status(403).json({ error: "Only the seller can unlock this listing" });
-    if (listing.is_unlocked)
+    if (listing.is_contact_public)
       return res.status(400).json({ error: "Listing is already unlocked" });
     // NOTE: locked_buyer_id check intentionally removed — seller can pay at any time
 
@@ -50,7 +50,7 @@ router.post("/unlock", requireAuth, async (req, res, next) => {
         `INSERT INTO payments (payer_id, listing_id, type, amount_kes, mpesa_phone, status, confirmed_at, mpesa_receipt) VALUES ($1,$2,'unlock',0,'voucher','confirmed',NOW(),$3)`,
         [req.user.id, listing_id, `VOUCHER-${voucher_code}`]
       );
-      await query(`UPDATE listings SET is_unlocked = TRUE, unlocked_at = NOW(), is_contact_public = TRUE WHERE id = $1`, [listing_id]);
+      await query(`UPDATE listings SET unlocked_at = NOW(), is_contact_public = TRUE WHERE id = $1`, [listing_id]);
       const { rows: unlocked } = await query(
         `SELECT l.*, u.name AS seller_name, u.phone AS seller_phone, u.email AS seller_email FROM listings l JOIN users u ON u.id = l.seller_id WHERE l.id = $1`,
         [listing_id]
@@ -184,7 +184,7 @@ router.post("/verify-receipt", requireAuth, async (req, res, next) => {
     } else { paymentId = payments[0].id; }
     await query(`UPDATE payments SET status='confirmed', mpesa_receipt=$1, confirmed_at=NOW() WHERE id=$2`, [code, paymentId]);
     if (type === "unlock") {
-      await query(`UPDATE listings SET is_unlocked=TRUE, unlocked_at=NOW(), is_contact_public=TRUE WHERE id=$1`, [listing_id]);
+      await query(`UPDATE listings SET unlocked_at=NOW(), is_contact_public=TRUE WHERE id=$1`, [listing_id]);
       const { rows: unlocked } = await query(`SELECT l.*, u.name AS seller_name, u.phone AS seller_phone, u.email AS seller_email FROM listings l JOIN users u ON u.id=l.seller_id WHERE l.id=$1`, [listing_id]);
       return res.json({ ok: true, status: "confirmed", receipt: code, listing: unlocked[0] });
     }
