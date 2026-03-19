@@ -101,6 +101,13 @@ async function runMigration() {
     await addCol("listings","sold_channel","VARCHAR(30) DEFAULT NULL"); // 'platform' or 'outside'
     await addCol("listings","sold_at","TIMESTAMPTZ DEFAULT NULL");
 
+    // ── Unique phone number — only enforced when phone is provided ────────────
+    await client.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_users_phone_unique
+      ON users (phone)
+      WHERE phone IS NOT NULL AND phone != ''
+    `).catch(()=>{});
+
     // ── LISTING PHOTOS ───────────────────────────────────────────────────────
     await client.query(`CREATE TABLE IF NOT EXISTS listing_photos (
       id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
