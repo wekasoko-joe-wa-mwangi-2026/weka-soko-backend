@@ -81,20 +81,25 @@ router.post(
         [name, email, hash, role, phone||null, anonTag, verifyToken, verifyExpires]
       );
       const user = rows[0];
-      const token = signToken(user);
 
-      // Send verification email (non-blocking)
+      // Send verification email
       const link = `${FRONTEND}?verify_email=${verifyToken}`;
-      sendEmail(
+      await sendEmail(
         email, name,
-        "✅ Verify your Weka Soko email",
-        `Hi ${name},\n\nWelcome to Weka Soko! 🎉\n\nPlease verify your email to get full access:\n${link}\n\nThis link expires in 24 hours.\n\n— Weka Soko`
+        "✅ Verify your Weka Soko email — one step left!",
+        `Hi ${name},\n\nWelcome to Weka Soko! 🎉\n\nYou're almost ready. Please verify your email address to activate your account:\n\n👉 ${link}\n\nThis link expires in 24 hours. Once verified, you can sign in and start using Weka Soko.\n\nIf you didn't create this account, you can safely ignore this email.\n\n— Weka Soko`
       ).catch(e => console.error("[Auth] Verify email:", e.message));
 
       sendWelcomeMessage({ userId: user.id, name, email, phone: phone||null })
         .catch(e => console.error("[Auth] Welcome msg:", e.message));
 
-      res.status(201).json({ user, token, emailSent: true });
+      // Do NOT return a token — user must verify email before they can log in
+      res.status(201).json({
+        ok: true,
+        requiresVerification: true,
+        email,
+        message: `We sent a verification link to ${email}. Please check your inbox and click the link to activate your account.`
+      });
     } catch (err) {
       // PostgreSQL unique constraint violation
       if (err.code === "23505") {
@@ -130,7 +135,34 @@ router.get("/verify-email", async (req, res, next) => {
       `UPDATE users SET is_verified=TRUE, email_verify_token=NULL, email_verify_expires=NULL WHERE id=$1`,
       [user.id]
     );
-    res.json({ ok: true, message: "Email verified! You can now use all features." });
+    // Return a token so the frontend can log them in automatically
+    const { rows: fresh } = await query(
+      `SELECT id,name,email,role,anon_tag,is_verified FROM users WHERE id=$1`, [user.id]
+    );
+    const token = signToken(fresh[0]);
+    res.json({ ok: true, message: "Email verified! You can now sign in.", token, user: fresh[0] });
+  } catch (err) { next(err); }
+});
+
+// ── POST /api/auth/resend-verification-by-email ─────────────────────────────
+// Resend verification email without requiring auth — for users who can't log in
+// because they haven't verified yet. Rate-limited by email.
+router.post("/resend-verification-by-email", async (req, res, next) => {
+  try {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ error: "Email required" });
+
+    const { rows } = await query(
+      `SELECT id,name,email,is_verified FROM users WHERE email=$1 AND account_status IS DISTINCT FROM 'deleted'`,
+      [email.toLowerCase().trim()]
+    );
+    // Always return ok — don't reveal whether email exists
+    if (!rows.length || rows[0].is_verified) {
+      return res.json({ ok: true, message: "If that email exists and is unverified, we've sent a new link." });
+    }
+
+    await sendVerificationEmail(rows[0].id, rows[0].email, rows[0].name);
+    res.json({ ok: true, message: "Verification email sent. Check your inbox." });
   } catch (err) { next(err); }
 });
 
@@ -165,6 +197,12 @@ router.post(
       // Admin accounts must use the admin panel — not the main site
       if (user.role === "admin") return res.status(403).json({ error: "Admin accounts must sign in via the Weka Soko Admin panel." });
       if (user.is_suspended) return res.status(403).json({ error: "Account suspended. Contact support@wekasoko.co.ke" });
+      // Unverified users must verify their email before logging in
+      if (!user.is_verified) return res.status(403).json({
+        error: "Please verify your email address before signing in. Check your inbox for the verification link.",
+        requiresVerification: true,
+        email: user.email
+      });
 
       const valid = await bcrypt.compare(password, user.password_hash);
       if (!valid) {
