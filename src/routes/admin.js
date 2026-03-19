@@ -18,7 +18,7 @@ router.get("/stats", async (req, res, next) => {
   try {
     const [listings, users, payments, violations, escrows, disputes, soldChannels] = await Promise.all([
       query(`SELECT COUNT(*) FILTER (WHERE status = 'active') AS active, COUNT(*) FILTER (WHERE status = 'sold') AS sold, COUNT(*) FILTER (WHERE status = 'locked') AS locked, COUNT(*) AS total FROM listings`),
-      query(`SELECT COUNT(*) AS total, COUNT(*) FILTER (WHERE role = 'seller') AS sellers, COUNT(*) FILTER (WHERE role = 'buyer') AS buyers, COUNT(*) FILTER (WHERE is_suspended = TRUE) AS suspended FROM users`),
+      query(`SELECT COUNT(*) AS total, COUNT(*) FILTER (WHERE role = 'seller') AS sellers, COUNT(*) FILTER (WHERE role = 'buyer') AS buyers, COUNT(*) FILTER (WHERE is_suspended = TRUE) AS suspended FROM users WHERE role != 'admin'`),
       query(`SELECT COUNT(*) FILTER (WHERE type = 'unlock' AND status = 'confirmed') AS unlock_count, SUM(amount_kes) FILTER (WHERE type = 'unlock' AND status = 'confirmed') AS unlock_revenue, SUM(amount_kes) FILTER (WHERE type = 'escrow' AND status = 'confirmed') AS escrow_volume, COUNT(*) FILTER (WHERE type = 'escrow' AND status = 'confirmed') AS escrow_count FROM payments`),
       query(`SELECT COUNT(*) AS total, COUNT(*) FILTER (WHERE severity = 'warning') AS warnings, COUNT(*) FILTER (WHERE severity = 'flagged') AS flagged, COUNT(*) FILTER (WHERE severity = 'suspended') AS suspended, COUNT(*) FILTER (WHERE reviewed = FALSE) AS unreviewed FROM chat_violations`),
       query(`SELECT COUNT(*) FILTER (WHERE status = 'holding') AS active FROM escrows`).catch(() => ({ rows: [{ active: 0 }] })),
@@ -160,7 +160,7 @@ router.get("/users", async (req, res, next) => {
        (SELECT COUNT(*) FROM listings l WHERE l.seller_id = u.id AND l.is_unlocked = TRUE) AS paid_unlocks,
        (SELECT COUNT(*) FROM listings l WHERE l.seller_id = u.id AND l.status = 'active') AS active_listings,
        (SELECT COUNT(*) FROM listings l WHERE l.seller_id = u.id AND l.status = 'sold') AS sold_listings
-       FROM users u WHERE u.account_status IS DISTINCT FROM 'deleted'
+       FROM users u WHERE u.account_status IS DISTINCT FROM 'deleted' AND u.role != 'admin'
        ORDER BY u.created_at DESC LIMIT 500`
     );
     res.json(rows);
