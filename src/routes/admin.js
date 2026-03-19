@@ -2,7 +2,6 @@
 const express = require("express");
 const { query } = require("../db/pool");
 const { requireAuth, requireAdmin } = require("../middleware/auth");
-const { deleteUserCompletely } = require("../services/deleteUser");
 const router = express.Router();
 
 let _io = null;
@@ -459,7 +458,55 @@ router.delete("/users/:id", async (req, res, next) => {
   try {
     const { id } = req.params;
     if (id === req.user.id) return res.status(400).json({ error: "Cannot delete your own account" });
-    await deleteUserCompletely(id);
+
+    // Collect Cloudinary public_ids BEFORE deleting rows
+    const { rows: photoRows } = await query(
+      `SELECT lp.public_id FROM listing_photos lp
+       JOIN listings l ON l.id = lp.listing_id
+       WHERE l.seller_id=$1 AND lp.public_id IS NOT NULL`, [id]
+    ).catch(() => ({ rows: [] }));
+
+    // Nullify FK refs that must stay
+    await query(`UPDATE payments SET payer_id=NULL WHERE payer_id=$1`, [id]).catch(()=>{});
+    await query(`UPDATE escrows SET approved_by=NULL WHERE approved_by=$1`, [id]).catch(()=>{});
+    await query(`UPDATE escrows SET released_by=NULL WHERE released_by=$1`, [id]).catch(()=>{});
+    await query(`UPDATE disputes SET resolved_by=NULL WHERE resolved_by=$1`, [id]).catch(()=>{});
+    await query(`UPDATE listings SET locked_buyer_id=NULL,locked_at=NULL WHERE locked_buyer_id=$1`, [id]).catch(()=>{});
+    await query(`UPDATE listings SET reviewed_by=NULL WHERE reviewed_by=$1`, [id]).catch(()=>{});
+    await query(`UPDATE chat_violations SET reviewed_by=NULL WHERE reviewed_by=$1`, [id]).catch(()=>{});
+    await query(`UPDATE vouchers SET created_by=NULL WHERE created_by=$1`, [id]).catch(()=>{});
+    // Payments & escrows
+    await query(`DELETE FROM payments WHERE listing_id IN (SELECT id FROM listings WHERE seller_id=$1)`, [id]).catch(()=>{});
+    await query(`DELETE FROM disputes WHERE escrow_id IN (SELECT id FROM escrows WHERE buyer_id=$1 OR seller_id=$1)`, [id]).catch(()=>{});
+    await query(`DELETE FROM escrows WHERE buyer_id=$1 OR seller_id=$1`, [id]).catch(()=>{});
+    // Reviews, pitches, requests
+    await query(`DELETE FROM reviews WHERE reviewer_id=$1 OR reviewee_id=$1`, [id]).catch(()=>{});
+    await query(`DELETE FROM seller_pitches WHERE seller_id=$1`, [id]).catch(()=>{});
+    await query(`DELETE FROM seller_pitches WHERE request_id IN (SELECT id FROM buyer_requests WHERE user_id=$1)`, [id]).catch(()=>{});
+    await query(`DELETE FROM buyer_requests WHERE user_id=$1`, [id]).catch(()=>{});
+    // Reports
+    await query(`DELETE FROM listing_reports WHERE reporter_id=$1`, [id]).catch(()=>{});
+    await query(`DELETE FROM listing_reports WHERE listing_id IN (SELECT id FROM listings WHERE seller_id=$1)`, [id]).catch(()=>{});
+    // Chat
+    await query(`DELETE FROM chat_messages WHERE sender_id=$1 OR receiver_id=$1`, [id]).catch(()=>{});
+    await query(`DELETE FROM chat_violations WHERE user_id=$1`, [id]).catch(()=>{});
+    // Listing photos & listings
+    await query(`DELETE FROM listing_photos WHERE listing_id IN (SELECT id FROM listings WHERE seller_id=$1)`, [id]).catch(()=>{});
+    await query(`DELETE FROM listings WHERE seller_id=$1`, [id]).catch(()=>{});
+    // Everything else
+    await query(`DELETE FROM notifications WHERE user_id=$1`, [id]).catch(()=>{});
+    await query(`DELETE FROM password_history WHERE user_id=$1`, [id]).catch(()=>{});
+    await query(`DELETE FROM password_resets WHERE user_id=$1`, [id]).catch(()=>{});
+    await query(`DELETE FROM users WHERE id=$1`, [id]);
+
+    // Purge Cloudinary images — non-fatal
+    if (photoRows.length > 0) {
+      try {
+        const { deleteByPublicId } = require("../services/cloudinary.service");
+        await Promise.allSettled(photoRows.map(r => deleteByPublicId(r.public_id)));
+      } catch (e) { console.warn("[Admin delete user] Cloudinary cleanup:", e.message); }
+    }
+
     res.json({ message: "User and all data permanently deleted" });
   } catch (err) { next(err); }
 });
