@@ -22,6 +22,7 @@ const { sendEmail } = require("./services/email.service");
 const statsRoutes = require("./routes/stats");
 const voucherRoutes = require("./routes/vouchers");
 const reviewRoutes = require("./routes/reviews");
+const requestRoutes = require("./routes/requests");
 const pushRoutes = require("./routes/push");
 const { sendPushToUser } = require("./routes/push");
 
@@ -489,6 +490,7 @@ app.use("/api/notifications", notificationRoutes);
 app.use("/api/stats", statsRoutes);
 app.use("/api/vouchers", voucherRoutes);
 app.use("/api/reviews", reviewRoutes);
+app.use("/api/requests", requestRoutes);
 app.use("/api/push", pushRoutes);
 
 // ── Health Check ──────────────────────────────────────────────────────────────
