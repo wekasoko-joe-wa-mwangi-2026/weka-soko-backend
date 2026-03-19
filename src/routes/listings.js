@@ -51,12 +51,12 @@ router.get("/", optionalAuth, async (req, res, next) => {
     params.push(parseInt(limit), offset);
     const sql = `
       SELECT l.id, l.title, l.category, l.price, l.location, l.county, l.status,
-             l.view_count, l.interest_count,
+             l.seller_id, l.is_unlocked, l.view_count, l.interest_count,
              l.created_at, l.expires_at, l.locked_buyer_id,
              l.listing_anon_tag AS seller_anon,
-             CASE WHEN l.is_contact_public THEN u.name ELSE NULL END AS seller_name,
-             CASE WHEN l.is_contact_public THEN u.phone ELSE NULL END AS seller_phone,
-             CASE WHEN l.is_contact_public THEN u.email ELSE NULL END AS seller_email,
+             CASE WHEN l.is_unlocked THEN u.name ELSE NULL END AS seller_name,
+             CASE WHEN l.is_unlocked THEN u.phone ELSE NULL END AS seller_phone,
+             CASE WHEN l.is_unlocked THEN u.email ELSE NULL END AS seller_email,
              u.response_rate, u.avg_response_hours,
              COALESCE((SELECT json_agg(p.url ORDER BY p.sort_order) FROM listing_photos p WHERE p.listing_id=l.id),'[]'::json) AS photos
              ${searchClause}
@@ -88,17 +88,14 @@ router.get("/buyer/interests", requireAuth, async (req, res, next) => {
   try {
     const { rows } = await query(
       `SELECT l.*, l.listing_anon_tag AS seller_anon,
-              CASE WHEN l.is_contact_public THEN u.name ELSE NULL END AS seller_name,
-              CASE WHEN l.is_contact_public THEN u.phone ELSE NULL END AS seller_phone,
-              CASE WHEN l.is_contact_public THEN u.email ELSE NULL END AS seller_email,
+              CASE WHEN l.is_unlocked THEN u.name ELSE NULL END AS seller_name,
+              CASE WHEN l.is_unlocked THEN u.phone ELSE NULL END AS seller_phone,
+              CASE WHEN l.is_unlocked THEN u.email ELSE NULL END AS seller_email,
               COALESCE((SELECT json_agg(p.url ORDER BY p.sort_order) FROM listing_photos p WHERE p.listing_id=l.id),'[]'::json) AS photos
        FROM listings l JOIN users u ON u.id=l.seller_id
        WHERE l.locked_buyer_id=$1 AND l.status!='deleted' ORDER BY l.locked_at DESC NULLS LAST`,
       [req.user.id]
     );
-    rows.forEach(row => {
-      if (!row.is_contact_public) delete row.seller_id;
-    });
     res.json(rows);
   } catch (err) { next(err); }
 });
@@ -178,9 +175,9 @@ router.get("/:id", optionalAuth, async (req, res, next) => {
   try {
     const { rows } = await query(
       `SELECT l.*, l.listing_anon_tag AS seller_anon,
-              CASE WHEN l.is_contact_public THEN u.name ELSE NULL END AS seller_name,
-              CASE WHEN l.is_contact_public THEN u.phone ELSE NULL END AS seller_phone,
-              CASE WHEN l.is_contact_public THEN u.email ELSE NULL END AS seller_email,
+              CASE WHEN l.is_unlocked THEN u.name ELSE NULL END AS seller_name,
+              CASE WHEN l.is_unlocked THEN u.phone ELSE NULL END AS seller_phone,
+              CASE WHEN l.is_unlocked THEN u.email ELSE NULL END AS seller_email,
               u.response_rate, u.avg_response_hours,
               (SELECT COUNT(*) FROM listing_reports r WHERE r.listing_id=l.id AND r.status='pending') AS pending_reports,
               COALESCE((SELECT json_agg(json_build_object('url',p.url,'sort_order',p.sort_order) ORDER BY p.sort_order) FROM listing_photos p WHERE p.listing_id=l.id),'[]'::json) AS photos
@@ -197,8 +194,6 @@ router.get("/:id", optionalAuth, async (req, res, next) => {
     if (req.user && req.user.id === listing.seller_id) {
       const { rows: sr } = await query(`SELECT name,phone,email FROM users WHERE id=$1`, [req.user.id]);
       listing.seller_name = sr[0].name; listing.seller_phone = sr[0].phone; listing.seller_email = sr[0].email;
-    } else if (!listing.is_contact_public) {
-      delete listing.seller_id;
     }
     res.json(listing);
   } catch (err) { next(err); }
@@ -294,6 +289,48 @@ router.delete("/:id", requireAuth, async (req, res, next) => {
     if (rows[0].seller_id !== req.user.id && req.user.role !== "admin") return res.status(403).json({ error: "Not your listing" });
     await query(`UPDATE listings SET status='deleted' WHERE id=$1`, [req.params.id]);
     res.json({ message: "Listing deleted" });
+  } catch (err) { next(err); }
+});
+
+// ── POST /api/listings/:id/mark-sold ─────────────────────────────────────────
+// Seller marks their own listing as sold, recording whether it sold on platform or outside
+router.post("/:id/mark-sold", requireAuth, requireSeller, async (req, res, next) => {
+  try {
+    const { channel } = req.body; // "platform" or "outside"
+    if (!["platform", "outside"].includes(channel)) {
+      return res.status(400).json({ error: "channel must be 'platform' or 'outside'" });
+    }
+    const { rows } = await query(
+      `SELECT id, seller_id, status, title FROM listings WHERE id=$1`,
+      [req.params.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: "Listing not found" });
+    const listing = rows[0];
+    if (listing.seller_id !== req.user.id) return res.status(403).json({ error: "Not your listing" });
+    if (listing.status === "sold") return res.status(400).json({ error: "Already marked as sold" });
+    if (["deleted", "archived"].includes(listing.status)) {
+      return res.status(400).json({ error: "Cannot mark deleted/archived listing as sold" });
+    }
+
+    await query(
+      `UPDATE listings SET status='sold', sold_channel=$1, sold_at=NOW(), updated_at=NOW() WHERE id=$2`,
+      [channel, listing.id]
+    );
+
+    // Notify admin
+    try {
+      await query(
+        `INSERT INTO notifications (user_id, type, title, body, data)
+         SELECT id, 'admin_edit', 'Listing Marked Sold',
+           $1, $2::jsonb FROM users WHERE role='admin' LIMIT 5`,
+        [
+          `"${listing.title}" marked as sold ${channel === "platform" ? "via Weka Soko" : "outside platform"}`,
+          JSON.stringify({ listing_id: listing.id, channel })
+        ]
+      );
+    } catch (_) {}
+
+    res.json({ success: true, channel, listing_id: listing.id });
   } catch (err) { next(err); }
 });
 
