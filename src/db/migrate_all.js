@@ -125,6 +125,16 @@ async function runMigration() {
       UNIQUE(listing_id, reporter_id)
     );`);
 
+    // ── PASSWORD HISTORY ─────────────────────────────────────────────────────
+    // Stores old password hashes so users can't reuse them after a reset
+    await client.query(`CREATE TABLE IF NOT EXISTS password_history (
+      id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+      user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      password_hash VARCHAR(255) NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_pw_history_user ON password_history(user_id)`).catch(()=>{});
+
     // ── PASSWORD RESETS ──────────────────────────────────────────────────────
     await client.query(`CREATE TABLE IF NOT EXISTS password_resets (
       id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
