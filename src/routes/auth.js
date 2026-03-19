@@ -143,6 +143,8 @@ router.post(
       if (!rows.length) return res.status(401).json({ error: "Invalid credentials" });
       const user = rows[0];
       if (user.account_status === "deleted") return res.status(401).json({ error: "Invalid credentials" });
+      // Admin accounts must use the admin panel — not the main site
+      if (user.role === "admin") return res.status(403).json({ error: "Admin accounts must sign in via the Weka Soko Admin panel." });
       if (user.is_suspended) return res.status(403).json({ error: "Account suspended. Contact support@wekasoko.co.ke" });
 
       const valid = await bcrypt.compare(password, user.password_hash);
@@ -160,6 +162,40 @@ router.post(
         }
         return res.status(401).json({ error: "Invalid credentials" });
       }
+
+      delete user.password_hash;
+      delete user.account_status;
+      const token = signToken(user);
+      res.json({ user, token });
+    } catch (err) { next(err); }
+  }
+);
+
+// ── POST /api/auth/admin-login ───────────────────────────────────────────────
+// Separate login endpoint exclusively for admin panel users.
+// Regular users (buyer/seller) are blocked here.
+router.post(
+  "/admin-login",
+  [body("email").isEmail().normalizeEmail(), body("password").notEmpty()],
+  async (req, res, next) => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
+
+      const { email, password } = req.body;
+      const { rows } = await query(
+        `SELECT id,name,email,password_hash,role,admin_level,anon_tag,is_suspended,is_verified,account_status FROM users WHERE email=$1`,
+        [email]
+      );
+      if (!rows.length) return res.status(401).json({ error: "Invalid credentials" });
+      const user = rows[0];
+      if (user.account_status === "deleted") return res.status(401).json({ error: "Invalid credentials" });
+      // Only admin accounts allowed here
+      if (user.role !== "admin") return res.status(403).json({ error: "Access denied. This login is for admin accounts only." });
+      if (user.is_suspended) return res.status(403).json({ error: "Account suspended. Contact support@wekasoko.co.ke" });
+
+      const valid = await bcrypt.compare(password, user.password_hash);
+      if (!valid) return res.status(401).json({ error: "Invalid credentials" });
 
       delete user.password_hash;
       delete user.account_status;
