@@ -450,6 +450,46 @@ router.get("/sold", async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// ── POST /api/admin/listings/:id/mark-sold ────────────────────────────────────
+router.post("/listings/:id/mark-sold", async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { sold_channel } = req.body; // 'platform' | 'outside'
+    if (!sold_channel || !["platform","outside"].includes(sold_channel)) {
+      return res.status(400).json({ error: "sold_channel must be 'platform' or 'outside'" });
+    }
+    const { rows } = await query(
+      `SELECT l.id, l.title, l.status, l.seller_id, u.name, u.email
+       FROM listings l JOIN users u ON u.id=l.seller_id WHERE l.id=$1`, [id]
+    );
+    if (!rows.length) return res.status(404).json({ error: "Listing not found" });
+    const listing = rows[0];
+    if (listing.status === "sold") return res.status(409).json({ error: "Listing is already marked as sold" });
+
+    await query(
+      `UPDATE listings SET status='sold', sold_channel=$1, sold_at=NOW(), updated_at=NOW() WHERE id=$2`,
+      [sold_channel, id]
+    );
+
+    // Notify the seller
+    const channelLabel = sold_channel === "platform" ? "via Weka Soko 🛒" : "outside the platform 🤝";
+    await query(
+      `INSERT INTO notifications (user_id, type, title, body, data) VALUES ($1,'listing_sold','✅ Marked as Sold',$2,$3)`,
+      [listing.seller_id,
+       `Your listing "${listing.title}" has been marked as sold ${channelLabel} by an admin.`,
+       JSON.stringify({ listing_id: id, sold_channel })]
+    ).catch(()=>{});
+
+    pushNotification(listing.seller_id, {
+      type: "listing_sold",
+      title: "✅ Listing Marked Sold",
+      body: `"${listing.title}" has been marked as sold ${channelLabel}.`,
+    });
+
+    res.json({ ok: true, message: `Listing marked as sold (${sold_channel})` });
+  } catch (err) { next(err); }
+});
+
 // ── GET /api/admin/reports ────────────────────────────────────────────────────
 router.get("/reports", async (req, res, next) => {
   try {
