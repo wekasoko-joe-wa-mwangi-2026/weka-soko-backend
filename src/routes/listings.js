@@ -58,6 +58,7 @@ router.get("/", optionalAuth, async (req, res, next) => {
              CASE WHEN l.is_unlocked THEN u.phone ELSE NULL END AS seller_phone,
              CASE WHEN l.is_unlocked THEN u.email ELSE NULL END AS seller_email,
              u.response_rate, u.avg_response_hours,
+             u.avg_rating AS seller_avg_rating, u.review_count AS seller_review_count,
              COALESCE((SELECT json_agg(p.url ORDER BY p.sort_order) FROM listing_photos p WHERE p.listing_id=l.id),'[]'::json) AS photos
              ${searchClause}
       FROM listings l JOIN users u ON u.id=l.seller_id
@@ -179,6 +180,7 @@ router.get("/:id", optionalAuth, async (req, res, next) => {
               CASE WHEN l.is_unlocked THEN u.phone ELSE NULL END AS seller_phone,
               CASE WHEN l.is_unlocked THEN u.email ELSE NULL END AS seller_email,
               u.response_rate, u.avg_response_hours,
+              u.avg_rating AS seller_avg_rating, u.review_count AS seller_review_count,
               (SELECT COUNT(*) FROM listing_reports r WHERE r.listing_id=l.id AND r.status='pending') AS pending_reports,
               COALESCE((SELECT json_agg(json_build_object('url',p.url,'sort_order',p.sort_order) ORDER BY p.sort_order) FROM listing_photos p WHERE p.listing_id=l.id),'[]'::json) AS photos
        FROM listings l JOIN users u ON u.id=l.seller_id
