@@ -59,8 +59,15 @@ router.post(
       if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
 
       const { name, email, password, role, phone } = req.body;
+      // Check email uniqueness
       const existing = await query("SELECT id FROM users WHERE email=$1", [email]);
-      if (existing.rows.length) return res.status(409).json({ error: "Email already registered" });
+      if (existing.rows.length) return res.status(409).json({ error: "An account with this email already exists." });
+
+      // Check phone uniqueness (only if phone provided)
+      if (phone && phone.trim()) {
+        const existingPhone = await query("SELECT id FROM users WHERE phone=$1 AND phone IS NOT NULL", [phone.trim()]);
+        if (existingPhone.rows.length) return res.status(409).json({ error: "An account with this phone number already exists." });
+      }
 
       const hash = await bcrypt.hash(password, 12);
       const anonTag = generateAnonTag();
@@ -88,7 +95,19 @@ router.post(
         .catch(e => console.error("[Auth] Welcome msg:", e.message));
 
       res.status(201).json({ user, token, emailSent: true });
-    } catch (err) { next(err); }
+    } catch (err) {
+      // PostgreSQL unique constraint violation
+      if (err.code === "23505") {
+        if (err.constraint?.includes("email") || err.detail?.includes("email")) {
+          return res.status(409).json({ error: "An account with this email already exists." });
+        }
+        if (err.constraint?.includes("phone") || err.detail?.includes("phone")) {
+          return res.status(409).json({ error: "An account with this phone number already exists." });
+        }
+        return res.status(409).json({ error: "An account with these details already exists." });
+      }
+      next(err);
+    }
   }
 );
 
@@ -223,6 +242,14 @@ router.get("/me", requireAuth, async (req, res, next) => {
 router.patch("/profile", requireAuth, async (req, res, next) => {
   try {
     const { name, phone, whatsapp_phone } = req.body;
+    // Check phone not already used by another account
+    if (phone && phone.trim()) {
+      const existingPhone = await query(
+        "SELECT id FROM users WHERE phone=$1 AND id!=$2 AND phone IS NOT NULL",
+        [phone.trim(), req.user.id]
+      );
+      if (existingPhone.rows.length) return res.status(409).json({ error: "This phone number is already linked to another account." });
+    }
     const { rows } = await query(
       `UPDATE users SET name=COALESCE($1,name),phone=COALESCE($2,phone),
        whatsapp_phone=COALESCE($3,whatsapp_phone),updated_at=NOW()
@@ -230,7 +257,12 @@ router.patch("/profile", requireAuth, async (req, res, next) => {
       [name||null, phone||null, whatsapp_phone||null, req.user.id]
     );
     res.json(rows[0]);
-  } catch (err) { next(err); }
+  } catch (err) {
+    if (err.code === "23505" && (err.constraint?.includes("phone") || err.detail?.includes("phone"))) {
+      return res.status(409).json({ error: "This phone number is already linked to another account." });
+    }
+    next(err);
+  }
 });
 
 // ── POST /api/auth/change-password ──────────────────────────────────────────
