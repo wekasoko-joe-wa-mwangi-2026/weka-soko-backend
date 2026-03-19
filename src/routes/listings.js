@@ -133,12 +133,14 @@ router.get("/sold", optionalAuth, async (req, res, next) => {
     const { rows } = await query(
       `SELECT l.id, l.title, l.category, l.price, l.location, l.county, l.status,
               l.view_count, l.interest_count, l.created_at, l.updated_at,
+              COALESCE(l.sold_at, l.updated_at) AS sold_at,
+              l.sold_channel,
               l.listing_anon_tag AS seller_anon,
               COALESCE((SELECT json_agg(p.url ORDER BY p.sort_order) FROM listing_photos p WHERE p.listing_id=l.id),'[]'::json) AS photos,
               (SELECT ROUND(AVG(r.rating)::numeric,1) FROM reviews r WHERE r.listing_id=l.id) AS avg_rating,
               (SELECT COUNT(*) FROM reviews r WHERE r.listing_id=l.id) AS review_count
        FROM listings l JOIN users u ON u.id=l.seller_id
-       ${where} ORDER BY l.updated_at DESC
+       ${where} ORDER BY COALESCE(l.sold_at, l.updated_at) DESC
        LIMIT $${params.length-1} OFFSET $${params.length}`,
       params
     );
