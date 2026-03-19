@@ -8,8 +8,8 @@ const { query } = require("../db/pool");
 const { requireAuth } = require("../middleware/auth");
 const router = express.Router();
 
-const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY || "BISLZuM6OyCuum8p0EEvcAdapjzRSqOt956KOiS0d33tO0ESwDslMvNjLCMWh0RcXpKW-gu7SMccfBjOXG6g8xc";
-const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY || "6_z1gDPV9se9E5zc0VuB_khJ4QkyV4gOVv3H-d4DeCQ";
+const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY || "BP3ld9PLaKtag2FUgo7RnvJkikkxZLJfW5muX4ALMQNJvFN5IwM_mqqvME5MarKiLFCNkGt3zqtIC0bxnPBqOBQ";
+const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY || "Ugxaico8CKcwo7w2bFr__aRlkMA5rck6uGjLoPjJSK0";
 const VAPID_SUBJECT = process.env.VAPID_SUBJECT || "mailto:support@wekasoko.co.ke";
 
 // ── GET /api/push/vapid-public-key ───────────────────────────────────────────
