@@ -20,7 +20,7 @@ const { query, withTransaction } = require("../db/pool");
 const { requireAuth, optionalAuth, requireSeller } = require("../middleware/auth");
 const { scanListingForContact } = require("../services/moderation.service");
 const { uploadBuffer } = require("../services/cloudinary.service");
-const { findMatchingRequests, notifySellerOfMatches } = require("../services/matching.service");
+const { findMatchingRequests, notifySellerOfMatches, notifyBuyerOfMatches } = require("../services/matching.service");
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10*1024*1024, files: 8 } });
 
@@ -271,7 +271,7 @@ router.post("/", requireAuth, requireSeller, upload.array("photos", 8), async (r
       try {
         const matches = await findMatchingRequests(result.id);
         if (matches.length > 0) {
-          await notifySellerOfMatches(result.id, matches, io);
+          for (const match of matches.slice(0, 3)) { await notifyBuyerOfMatches(match.id, [result], io); }
         }
       } catch(e) { console.error("[Listings] Error finding matching requests:", e); }
     })();
