@@ -192,7 +192,7 @@ router.get("/admin/sold", requireAuth, async (req, res, next) => {
               l.sold_channel,
               u.name AS seller_name, u.email AS seller_email,
               u2.name AS buyer_name, u2.email AS buyer_email,
-              COALESCE((SELECT json_agg(json_build_object('url',p.url) ORDER BY p.sort_order LIMIT 1) FROM listing_photos p WHERE p.listing_id=l.id),'[]'::json) AS photos
+              COALESCE((SELECT json_agg(json_build_object('url',p.url)) FROM (SELECT p.url FROM listing_photos p WHERE p.listing_id=l.id ORDER BY p.sort_order LIMIT 1) AS subq),'[]'::json) AS photos
        FROM listings l
        JOIN users u ON u.id=l.seller_id
        LEFT JOIN users u2 ON u2.id=l.locked_buyer_id
