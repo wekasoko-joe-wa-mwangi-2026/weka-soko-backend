@@ -50,10 +50,19 @@ router.post("/", requireAuth, async (req, res, next) => {
     const { title, description, budget, county } = req.body;
     if (!title || !description) return res.status(400).json({ error: "Title and description are required" });
     if (title.length > 120) return res.status(400).json({ error: "Title too long (max 120 chars)" });
+    
+    // Validate against contact info leakage (phone numbers, emails, etc.)
+    const contactPattern = /(?:\+?254|0)\d{1,3}\d{5,8}|[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}|\b(?:whatsapp|telegram|viber|signal)\b|\b(?:call|text|message|dm|inbox|contact)\s*(?:me|us)\b/gi;
+    const titleText = title.trim().toLowerCase();
+    const descText = description.trim().toLowerCase();
+    
+    if (contactPattern.test(titleText) || contactPattern.test(descText)) {
+      return res.status(400).json({ error: "Please do not include contact information (phone, email, social media) in your request. Sellers will contact you through the platform." });
+    }
 
     const { rows } = await query(
-      `INSERT INTO buyer_requests (user_id, title, description, budget, county)
-       VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+      `INSERT INTO buyer_requests (user_id, title, description, budget, county, status)
+       VALUES ($1, $2, $3, $4, $5, 'pending') RETURNING *`,
       [req.user.id, title.trim(), description.trim(), budget ? parseFloat(budget) : null, county || null]
     );
     res.status(201).json(rows[0]);
