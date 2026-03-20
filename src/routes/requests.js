@@ -72,12 +72,20 @@ router.post("/", requireAuth, async (req, res, next) => {
     }
 
     console.log("[POST /api/requests] Inserting request for user:", req.user.id);
-    const { rows } = await query(
-      `INSERT INTO buyer_requests (user_id, title, description, budget, county, status)
-       VALUES ($1, $2, $3, $4, $5, 'pending') RETURNING *`,
-      [req.user.id, title.trim(), description.trim(), budget ? parseFloat(budget) : null, county || null]
-    );
+    const sql = `INSERT INTO buyer_requests (user_id, title, description, budget, county, status) VALUES ($1, $2, $3, $4, $5, 'pending') RETURNING *`;
+    const params = [req.user.id, title.trim(), description.trim(), budget ? parseFloat(budget) : null, county || null];
+    console.log("[POST /api/requests] SQL:", sql);
+    console.log("[POST /api/requests] Params:", params);
     
+    let result;
+    try {
+      result = await query(sql, params);
+    } catch (queryErr) {
+      console.error("[POST /api/requests] Query error:", queryErr.message, queryErr.code);
+      throw queryErr;
+    }
+    
+    const { rows } = result;
     console.log("[POST /api/requests] Insert result:", rows);
     if (!rows || rows.length === 0) {
       return res.status(500).json({ error: "Failed to create request" });
