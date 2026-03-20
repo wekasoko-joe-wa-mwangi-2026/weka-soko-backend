@@ -20,7 +20,7 @@ const { query, withTransaction } = require("../db/pool");
 const { requireAuth, optionalAuth, requireSeller } = require("../middleware/auth");
 const { scanListingForContact } = require("../services/moderation.service");
 const { uploadBuffer } = require("../services/cloudinary.service");
-const { findMatchingRequests, notifySellerOfMatches, notifyBuyerOfMatches } = require("../services/matching.service");
+const { notifySellerOfMatches } = require("../services/matching.service");
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10*1024*1024, files: 8 } });
 
@@ -266,15 +266,7 @@ router.post("/", requireAuth, requireSeller, upload.array("photos", 8), async (r
     const io = req.app?.get("io");
     if (io) io.to("admin").emit("new_listing_review", { listing_id: result.id, title: result.title });
     res.status(201).json({ ...result, status: "pending_review" });
-    // Async: notify matching buyer requests using smart matching
-    (async () => {
-      try {
-        const matches = await findMatchingRequests(result.id);
-        if (matches.length > 0) {
-          for (const match of matches.slice(0, 3)) { await notifyBuyerOfMatches(match.id, [result], io); }
-        }
-      } catch(e) { console.error("[Listings] Error finding matching requests:", e); }
-    })();
+
   } catch (err) { next(err); }
 });
 

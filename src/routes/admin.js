@@ -1,6 +1,7 @@
 // src/routes/admin.js
 const express = require("express");
 const { query } = require("../db/pool");
+const { findMatchingRequests, notifyBuyerOfMatches } = require("../services/matching.service");
 const { requireAuth, requireAdmin } = require("../middleware/auth");
 const router = express.Router();
 
@@ -760,6 +761,19 @@ router.post("/moderation/:id/approve", async (req, res, next) => {
       `Hi ${listing.name},\n\nYour listing "${listing.title}" has been approved and is now live.\n\n${FRONTEND}\n\nGood luck with your sale!\n\n— Weka Soko`
     ).catch(e => console.error("[Moderation approve email]", e.message));
     res.json({ ok: true, message: "Listing approved and live" });
+
+    // Notify matching buyer requests using smart matching
+    (async () => {
+      try {
+        const fullListing = await query(`SELECT * FROM listings WHERE id = $1`, [id]);
+        if (fullListing.rows.length > 0) {
+          const matches = await findMatchingRequests(id);
+          if (matches.length > 0) {
+            for (const match of matches.slice(0, 3)) { await notifyBuyerOfMatches(match.id, [fullListing.rows[0]], _io); }
+          }
+        }
+      } catch(e) { console.error("[Admin Approve] Error finding matching requests:", e); }
+    })();
   } catch (err) { next(err); }
 });
 
