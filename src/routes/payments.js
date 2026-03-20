@@ -184,7 +184,7 @@ router.post("/verify-receipt", requireAuth, async (req, res, next) => {
     } else { paymentId = payments[0].id; }
     await query(`UPDATE payments SET status='confirmed', mpesa_receipt=$1, confirmed_at=NOW() WHERE id=$2`, [code, paymentId]);
     if (type === "unlock") {
-      await query(`UPDATE listings SET unlocked_at=NOW(), is_contact_public=TRUE WHERE id=$1`, [listing_id]);
+      await query(`UPDATE listings SET status='active', unlocked_at=NOW(), is_contact_public=TRUE WHERE id=$1`, [listing_id]);
       const { rows: unlocked } = await query(`SELECT l.*, u.name AS seller_name, u.phone AS seller_phone, u.email AS seller_email FROM listings l JOIN users u ON u.id=l.seller_id WHERE l.id=$1`, [listing_id]);
       return res.json({ ok: true, status: "confirmed", receipt: code, listing: unlocked[0] });
     }

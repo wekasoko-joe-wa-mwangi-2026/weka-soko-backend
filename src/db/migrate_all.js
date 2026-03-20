@@ -18,6 +18,7 @@ async function runMigration() {
     await client.query(`ALTER TYPE listing_status ADD VALUE IF NOT EXISTS 'rejected'`).catch(()=>{});
     await client.query(`ALTER TYPE listing_status ADD VALUE IF NOT EXISTS 'archived'`).catch(()=>{});
     await client.query(`ALTER TYPE listing_status ADD VALUE IF NOT EXISTS 'flagged'`).catch(()=>{});
+    await client.query(`ALTER TYPE listing_status ADD VALUE IF NOT EXISTS 'pending_payment'`).catch(()=>{});
 
     // ── Helper: safe column add ───────────────────────────────────────────────
     const addCol = (tbl, col, def) => client.query(`ALTER TABLE ${tbl} ADD COLUMN IF NOT EXISTS ${col} ${def}`).catch(()=>{});
@@ -73,7 +74,7 @@ async function runMigration() {
       price NUMERIC(12,2) NOT NULL,
       location VARCHAR(255),
       county VARCHAR(60),
-      status VARCHAR(30) DEFAULT 'pending_review',
+      status VARCHAR(30) DEFAULT 'pending_payment',
       is_unlocked BOOLEAN DEFAULT FALSE,
       locked_buyer_id UUID REFERENCES users(id) ON DELETE SET NULL,
       locked_at TIMESTAMPTZ,
@@ -100,6 +101,7 @@ async function runMigration() {
     await addCol("listings","reviewed_at","TIMESTAMPTZ");
     await addCol("listings","sold_channel","VARCHAR(30) DEFAULT NULL"); // 'platform' or 'outside'
     await addCol("listings","sold_at","TIMESTAMPTZ DEFAULT NULL");
+    await addCol("listings","payment_expires_at","TIMESTAMPTZ DEFAULT NOW() + INTERVAL '24 hours'");
 
     // ── Unique phone number — only enforced when phone is provided ────────────
     await client.query(`
