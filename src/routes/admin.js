@@ -409,8 +409,8 @@ router.get("/requests", async (req, res, next) => {
   try {
     const { page=1, limit=50, status } = req.query;
     const offset = (parseInt(page)-1)*parseInt(limit);
-    const conditions = status ? [`r.status=$1`] : [];
-    const params = status ? [status, parseInt(limit), offset] : [parseInt(limit), offset];
+    const conditions = status && status !== "all" ? [`r.status=$1`] : [];
+    const params = status && status !== "all" ? [status, parseInt(limit), offset] : [parseInt(limit), offset];
     const where = conditions.length ? "WHERE " + conditions.join(" AND ") : "";
     const limitIdx = params.length - 1;
     const offsetIdx = params.length;
@@ -428,6 +428,46 @@ router.get("/requests", async (req, res, next) => {
       params.slice(0,-2)
     );
     res.json({ requests: rows, total: parseInt(cnt[0].count) });
+  } catch (err) { next(err); }
+});
+
+// ── GET /api/admin/requests/:id/pitches ──────────────────────────────────────
+router.get("/requests/:id/pitches", async (req, res, next) => {
+  try {
+    const { rows } = await query(
+      `SELECT sp.id, sp.message, sp.offered_price, sp.status, sp.created_at, sp.accepted_at,
+              u.anon_tag AS seller_anon
+       FROM seller_pitches sp JOIN users u ON u.id=sp.seller_id
+       WHERE sp.request_id=$1 ORDER BY sp.created_at DESC`,
+      [req.params.id]
+    );
+    res.json({ pitches: rows });
+  } catch (err) { next(err); }
+});
+
+// ── PATCH /api/admin/requests/:id/status ─────────────────────────────────────
+router.patch("/requests/:id/status", async (req, res, next) => {
+  try {
+    const { status } = req.body;
+    const validStatuses = ["active","closed","archived","expired"];
+    if (!validStatuses.includes(status)) return res.status(400).json({ error: "Invalid status" });
+    const { rows } = await query(
+      `UPDATE buyer_requests SET status=$1, updated_at=NOW() WHERE id=$2 RETURNING id,title,status`,
+      [status, req.params.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: "Request not found" });
+    res.json({ ok: true, request: rows[0] });
+  } catch (err) { next(err); }
+});
+
+// ── DELETE /api/admin/requests/:id ───────────────────────────────────────────
+router.delete("/requests/:id", async (req, res, next) => {
+  try {
+    const id = req.params.id;
+    await query(`DELETE FROM seller_pitches WHERE request_id=$1`, [id]).catch(()=>{});
+    await query(`DELETE FROM notifications WHERE data::text LIKE $1`, [`%${id}%`]).catch(()=>{});
+    await query(`DELETE FROM buyer_requests WHERE id=$1`, [id]);
+    res.json({ ok: true, message: "Request and all pitches deleted" });
   } catch (err) { next(err); }
 });
 
