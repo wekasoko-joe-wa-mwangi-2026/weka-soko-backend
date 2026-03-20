@@ -481,9 +481,10 @@ router.get("/sold", async (req, res, next) => {
        l.created_at, COALESCE(l.sold_at, l.updated_at) AS sold_at,
        u.name AS seller_name, u.email AS seller_email,
        u2.name AS buyer_name, u2.email AS buyer_email,
-       COALESCE((SELECT json_agg(url) FROM (SELECT p.url FROM listing_photos p WHERE p.listing_id=l.id ORDER BY p.sort_order LIMIT 1) AS subq),'[]'::json) AS photos
+       COALESCE(array_to_json(array_agg(p.url ORDER BY p.sort_order LIMIT 1)),'[]'::json) AS photos
        FROM listings l JOIN users u ON u.id=l.seller_id LEFT JOIN users u2 ON u2.id=l.locked_buyer_id
-       WHERE l.status='sold' ORDER BY COALESCE(l.sold_at, l.updated_at) DESC LIMIT $1 OFFSET $2`, [parseInt(limit), offset]
+       LEFT JOIN listing_photos p ON p.listing_id=l.id
+       WHERE l.status='sold' GROUP BY l.id, u.id, u2.id ORDER BY COALESCE(l.sold_at, l.updated_at) DESC LIMIT $1 OFFSET $2`, [parseInt(limit), offset]
     );
     const { rows: cnt } = await query(`SELECT COUNT(*) FROM listings WHERE status='sold'`);
     res.json({ listings: rows, total: parseInt(cnt[0].count) });
