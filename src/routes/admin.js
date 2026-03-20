@@ -760,6 +760,20 @@ router.post("/moderation/:id/approve", async (req, res, next) => {
     sendEmail(listing.email, listing.name, "✅ Your ad is live on Weka Soko!",
       `Hi ${listing.name},\n\nYour listing "${listing.title}" has been approved and is now live.\n\n${FRONTEND}\n\nGood luck with your sale!\n\n— Weka Soko`
     ).catch(e => console.error("[Moderation approve email]", e.message));
+    
+    // Notify buyers with matching requests
+    (async () => {
+      try {
+        const { findMatchingRequests, notifyBuyerOfMatches } = require("../services/matching.service");
+        const matches = await findMatchingRequests(id);
+        if (matches.length > 0) {
+          for (const match of matches.slice(0, 3)) {
+            await notifyBuyerOfMatches(match.id, [listing], io);
+          }
+        }
+      } catch(e) { console.error("[Admin Moderation] Error notifying buyers:", e); }
+    })();
+    
     res.json({ ok: true, message: "Listing approved and live" });
 
     // Notify matching buyer requests using smart matching
