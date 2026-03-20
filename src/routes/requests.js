@@ -47,6 +47,7 @@ router.get("/", optionalAuth, async (req, res, next) => {
 // Create a new buyer request
 router.post("/", requireAuth, async (req, res, next) => {
   try {
+    console.log("[POST /api/requests] User:", req.user?.id, "Body:", req.body);
     const { title, description, budget, county } = req.body;
     if (!title || !description) return res.status(400).json({ error: "Title and description are required" });
     if (title.length > 120) return res.status(400).json({ error: "Title too long (max 120 chars)" });
@@ -70,18 +71,24 @@ router.post("/", requireAuth, async (req, res, next) => {
       return res.status(400).json({ error: "Please do not include social media handles in your request." });
     }
 
+    console.log("[POST /api/requests] Inserting request for user:", req.user.id);
     const { rows } = await query(
       `INSERT INTO buyer_requests (user_id, title, description, budget, county, status)
        VALUES ($1, $2, $3, $4, $5, 'pending') RETURNING *`,
       [req.user.id, title.trim(), description.trim(), budget ? parseFloat(budget) : null, county || null]
     );
     
+    console.log("[POST /api/requests] Insert result:", rows);
     if (!rows || rows.length === 0) {
       return res.status(500).json({ error: "Failed to create request" });
     }
     
+    console.log("[POST /api/requests] Returning request:", rows[0]);
     res.status(201).json(rows[0]);
-  } catch (err) { next(err); }
+  } catch (err) { 
+    console.error("[POST /api/requests] Error:", err);
+    next(err); 
+  }
 });
 
 // ── DELETE /api/requests/:id ───────────────────────────────────────────────
