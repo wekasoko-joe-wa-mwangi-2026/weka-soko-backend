@@ -17,7 +17,7 @@ exports.KENYA_COUNTIES = KENYA_COUNTIES;
 const express = require("express");
 const multer = require("multer");
 const { query, withTransaction } = require("../db/pool");
-const { requireAuth, optionalAuth, requireSeller } = require("../middleware/auth");
+const { requireAuth, optionalAuth, requireSeller, requireAdmin } = require("../middleware/auth");
 const { scanListingForContact } = require("../services/moderation.service");
 const { uploadBuffer } = require("../services/cloudinary.service");
 const router = express.Router();
@@ -168,6 +168,36 @@ router.get("/sold/all", async (req, res, next) => {
       params
     );
     const { rows: cnt } = await query(`SELECT COUNT(*) FROM listings l WHERE ${conditions.join(" AND ")}`, params.slice(0,-2));
+    res.json({ listings: rows, total: parseInt(cnt[0].count) });
+  } catch (err) { next(err); }
+});
+
+// ── GET /api/listings/admin/sold ──────────────────────────────────────────────
+// Admin only: Get all sold listings with seller and buyer info
+router.get("/admin/sold", requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    const { q, page=1, limit=50 } = req.query;
+    const offset = (parseInt(page)-1)*parseInt(limit);
+    const params = [];
+    let where = "WHERE l.status='sold'";
+    if (q) {
+      params.push(`%${q}%`);
+      where += ` AND (l.title ILIKE $1 OR u.name ILIKE $1 OR u.email ILIKE $1 OR u2.name ILIKE $1 OR u2.email ILIKE $1)`;
+    }
+    params.push(parseInt(limit), offset);
+    const sql = `
+      SELECT l.id, l.title, l.category, l.price, l.location, l.county, l.status,
+             l.view_count, l.interest_count, l.created_at, l.updated_at AS sold_at,
+             u.name AS seller_name, u.email AS seller_email, u.phone AS seller_phone,
+             u2.name AS buyer_name, u2.email AS buyer_email, u2.phone AS buyer_phone
+      FROM listings l
+      JOIN users u ON u.id=l.seller_id
+      LEFT JOIN users u2 ON u2.id=l.locked_buyer_id
+      ${where}
+      ORDER BY l.updated_at DESC
+      LIMIT $${params.length-1} OFFSET $${params.length}`;
+    const { rows } = await query(sql, params);
+    const { rows: cnt } = await query(`SELECT COUNT(*) FROM listings l JOIN users u ON u.id=l.seller_id LEFT JOIN users u2 ON u2.id=l.locked_buyer_id ${where}`, params.slice(0,-2));
     res.json({ listings: rows, total: parseInt(cnt[0].count) });
   } catch (err) { next(err); }
 });
