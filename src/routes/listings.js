@@ -250,7 +250,9 @@ router.post("/", requireAuth, requireSeller, upload.array("photos", 8), async (r
     const scanResult = scanListingForContact({ title, description, reason_for_sale, location });
     if (scanResult.blocked) return res.status(422).json({ error: `Field "${scanResult.field}" contains contact info (${scanResult.reason}). Please remove it.`, violations: [scanResult] });
     const resolvedCounty = county || KENYA_COUNTIES.find(c => location && location.toLowerCase().includes(c.toLowerCase())) || null;
-    const initialStatus = is_contact_public === "true" || is_contact_public === true ? "pending_payment" : "active";
+    // All ads require admin approval. If Pay Now, it stays in pending_payment until paid, then moves to pending_review.
+    // If Pay Later, it moves straight to pending_review.
+    const initialStatus = (is_contact_public === "true" || is_contact_public === true) ? "pending_payment" : "pending_review";
     const result = await withTransaction(async (client) => {
       const { rows } = await client.query(
         `INSERT INTO listings (seller_id,title,description,reason_for_sale,category,price,location,county,listing_anon_tag,status,request_id,is_contact_public)

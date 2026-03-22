@@ -162,12 +162,12 @@ router.post("/escrow/:id/dispute", requireAuth, async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-// ── POST /api/payments/verify-receipt ───────────────────────────────────────────────────────────
-router.post("/verify-receipt", requireAuth, async (req, res, next) => {
+// ── POST /api/payments/verify-manual ───────────────────────────────────────────────────────────
+router.post("/verify-manual", requireAuth, async (req, res, next) => {
   try {
-    const { receipt_code, listing_id, type } = req.body;
-    if (!receipt_code || !listing_id || !type) return res.status(400).json({ error: "receipt_code, listing_id and type are required" });
-    const code = receipt_code.trim().toUpperCase();
+    const { mpesa_code, listing_id, type } = req.body;
+    if (!mpesa_code || !listing_id || !type) return res.status(400).json({ error: "mpesa_code, listing_id and type are required" });
+    const code = mpesa_code.trim().toUpperCase();
     const { rows: existing } = await query(`SELECT id, status FROM payments WHERE mpesa_receipt = $1`, [code]);
     if (existing.length && existing[0].status === "confirmed") return res.status(409).json({ error: "This transaction code has already been used." });
     const { rows: payments } = await query(
@@ -184,7 +184,8 @@ router.post("/verify-receipt", requireAuth, async (req, res, next) => {
     } else { paymentId = payments[0].id; }
     await query(`UPDATE payments SET status='confirmed', mpesa_receipt=$1, confirmed_at=NOW() WHERE id=$2`, [code, paymentId]);
     if (type === "unlock") {
-      await query(`UPDATE listings SET status='active', unlocked_at=NOW(), is_contact_public=TRUE WHERE id=$1`, [listing_id]);
+      // When Pay Now is confirmed, move to pending_review for admin approval
+      await query(`UPDATE listings SET status='pending_review', unlocked_at=NOW(), is_contact_public=TRUE WHERE id=$1`, [listing_id]);
       const { rows: unlocked } = await query(`SELECT l.*, u.name AS seller_name, u.phone AS seller_phone, u.email AS seller_email FROM listings l JOIN users u ON u.id=l.seller_id WHERE l.id=$1`, [listing_id]);
       return res.json({ ok: true, status: "confirmed", receipt: code, listing: unlocked[0] });
     }
