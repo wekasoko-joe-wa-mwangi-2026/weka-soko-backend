@@ -60,7 +60,7 @@ router.get("/", optionalAuth, async (req, res, next) => {
              CASE WHEN l.is_unlocked THEN u.email ELSE NULL END AS seller_email,
              u.response_rate, u.avg_response_hours,
              u.avg_rating AS seller_avg_rating, u.review_count AS seller_review_count,
-             COALESCE((SELECT json_agg(p.url ORDER BY p.sort_order) FROM listing_photos p WHERE p.listing_id=l.id),'[]'::json) AS photos
+             COALESCE((SELECT json_agg(p.url ORDER BY p.sort_order) FROM listing_photos p WHERE p.listing_id=l.id),\'[]\':json) AS photos
              ${searchClause}
       FROM listings l JOIN users u ON u.id=l.seller_id
       ${where}
@@ -221,10 +221,11 @@ router.get("/:id", optionalAuth, async (req, res, next) => {
               CASE WHEN l.is_unlocked THEN u.email ELSE NULL END AS seller_email,
               u.response_rate, u.avg_response_hours,
               u.avg_rating AS seller_avg_rating, u.review_count AS seller_review_count,
-              (SELECT COUNT(*) FROM listing_reports r WHERE r.listing_id=l.id AND r.status='pending') AS pending_reports,
-              COALESCE((SELECT json_agg(json_build_object('url',p.url,'sort_order',p.sort_order) ORDER BY p.sort_order) FROM listing_photos p WHERE p.listing_id=l.id),'[]'::json) AS photos
+              (SELECT COUNT(*) FROM listing_reports r WHERE r.listing_id=l.id AND r.status=\'pending\') AS pending_reports,
+              COALESCE((SELECT json_agg(json_build_object(\'url\',p.url,\'sort_order\',p.sort_order) ORDER BY p.sort_order) FROM listing_photos p WHERE p.listing_id=l.id),\'[]\':json) AS photos,
+              l.request_id, l.is_contact_public
        FROM listings l JOIN users u ON u.id=l.seller_id
-       WHERE l.id=$1 AND l.status!='deleted'`,
+       WHERE l.id=$1 AND l.status!=\'deleted\'`,
       [req.params.id]
     );
     if (!rows.length) return res.status(404).json({ error: "Listing not found" });
@@ -244,16 +245,16 @@ router.get("/:id", optionalAuth, async (req, res, next) => {
 // ── POST /api/listings ────────────────────────────────────────────────────────
 router.post("/", requireAuth, requireSeller, upload.array("photos", 8), async (req, res, next) => {
   try {
-    const { title, description, reason_for_sale, category, price, location, county } = req.body;
+    const { title, description, reason_for_sale, category, price, location, county, request_id, is_contact_public } = req.body;
     if (!title || !description || !price) return res.status(400).json({ error: "title, description, and price are required" });
     const scanResult = scanListingForContact({ title, description, reason_for_sale, location });
     if (scanResult.blocked) return res.status(422).json({ error: `Field "${scanResult.field}" contains contact info (${scanResult.reason}). Please remove it.`, violations: [scanResult] });
     const resolvedCounty = county || KENYA_COUNTIES.find(c => location && location.toLowerCase().includes(c.toLowerCase())) || null;
     const result = await withTransaction(async (client) => {
       const { rows } = await client.query(
-        `INSERT INTO listings (seller_id,title,description,reason_for_sale,category,price,location,county,listing_anon_tag,status)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'pending_review') RETURNING *`,
-        [req.user.id, title, description, reason_for_sale, category, parseFloat(price), location, resolvedCounty, genListingTag()]
+        `INSERT INTO listings (seller_id,title,description,reason_for_sale,category,price,location,county,listing_anon_tag,status,request_id,is_contact_public)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'pending_review',$10,$11) RETURNING *`,
+        [req.user.id, title, description, reason_for_sale, category, parseFloat(price), location, resolvedCounty, genListingTag(), request_id||null, is_contact_public||false]
       );
       const listing = rows[0];
       if (req.files?.length) {
@@ -274,7 +275,7 @@ router.post("/", requireAuth, requireSeller, upload.array("photos", 8), async (r
 router.patch("/:id", requireAuth, requireSeller, upload.array("photos", 8), async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { title, description, reason_for_sale, category, price, location, county } = req.body;
+    const { title, description, reason_for_sale, category, price, location, county, request_id, is_contact_public } = req.body;
     const { rows: ex } = await query(`SELECT seller_id FROM listings WHERE id=$1`, [id]);
     if (!ex.length) return res.status(404).json({ error: "Listing not found" });
     if (ex[0].seller_id !== req.user.id && req.user.role !== "admin") return res.status(403).json({ error: "Not your listing" });
@@ -288,10 +289,11 @@ router.patch("/:id", requireAuth, requireSeller, upload.array("photos", 8), asyn
       `UPDATE listings SET title=COALESCE($1,title), description=COALESCE($2,description),
        reason_for_sale=COALESCE($3,reason_for_sale), category=COALESCE($4,category),
        price=COALESCE($5,price), location=COALESCE($6,location), county=COALESCE($7,county),
-       status=COALESCE($9,status),
-       moderation_note=CASE WHEN $9='pending_review' THEN NULL ELSE moderation_note END,
-       updated_at=NOW() WHERE id=$8 RETURNING *`,
-      [title, description, reason_for_sale, category, price?parseFloat(price):null, location, resolvedCounty||null, id, newStatus||null]
+       request_id=COALESCE($8,request_id), is_contact_public=COALESCE($9,is_contact_public),
+       status=COALESCE($10,status),
+       moderation_note=CASE WHEN $10=\'pending_review\' THEN NULL ELSE moderation_note END,
+       updated_at=NOW() WHERE id=$11 RETURNING *\`,
+      [title, description, reason_for_sale, category, price?parseFloat(price):null, location, resolvedCounty||null, request_id||null, is_contact_public, id, newStatus||null]
     );
     if (req.files?.length) {
       const uploads = await Promise.all(req.files.map((f,i) => uploadBuffer(f.buffer, { folder: `weka-soko/listings/${id}` }).then(r => ({ ...r, sort_order: i+100 }))));
