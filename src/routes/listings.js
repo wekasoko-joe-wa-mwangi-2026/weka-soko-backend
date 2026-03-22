@@ -250,11 +250,12 @@ router.post("/", requireAuth, requireSeller, upload.array("photos", 8), async (r
     const scanResult = scanListingForContact({ title, description, reason_for_sale, location });
     if (scanResult.blocked) return res.status(422).json({ error: `Field "${scanResult.field}" contains contact info (${scanResult.reason}). Please remove it.`, violations: [scanResult] });
     const resolvedCounty = county || KENYA_COUNTIES.find(c => location && location.toLowerCase().includes(c.toLowerCase())) || null;
+    const initialStatus = is_contact_public === "true" || is_contact_public === true ? "pending_payment" : "active";
     const result = await withTransaction(async (client) => {
       const { rows } = await client.query(
         `INSERT INTO listings (seller_id,title,description,reason_for_sale,category,price,location,county,listing_anon_tag,status,request_id,is_contact_public)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'pending_review',$10,$11) RETURNING *`,
-        [req.user.id, title, description, reason_for_sale, category, parseFloat(price), location, resolvedCounty, genListingTag(), request_id||null, is_contact_public||false]
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`,
+        [req.user.id, title, description, reason_for_sale, category, parseFloat(price), location, resolvedCounty, genListingTag(), initialStatus, request_id||null, is_contact_public === "true" || is_contact_public === true]
       );
       const listing = rows[0];
       if (req.files?.length) {
@@ -265,8 +266,8 @@ router.post("/", requireAuth, requireSeller, upload.array("photos", 8), async (r
       return listing;
     });
     const io = req.app?.get("io");
-    if (io) io.to("admin").emit("new_listing_review", { listing_id: result.id, title: result.title });
-    res.status(201).json({ ...result, status: "pending_review" });
+    if (io && result.status === "pending_review") io.to("admin").emit("new_listing_review", { listing_id: result.id, title: result.title });
+    res.status(201).json(result);
 
   } catch (err) { next(err); }
 });
