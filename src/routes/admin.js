@@ -1,7 +1,6 @@
 // src/routes/admin.js
 const express = require("express");
 const { query } = require("../db/pool");
-const { findMatchingRequests, notifyBuyerOfMatches } = require("../services/matching.service");
 const { requireAuth, requireAdmin } = require("../middleware/auth");
 const router = express.Router();
 
@@ -482,7 +481,7 @@ router.get("/sold", async (req, res, next) => {
        l.created_at, COALESCE(l.sold_at, l.updated_at) AS sold_at,
        u.name AS seller_name, u.email AS seller_email,
        u2.name AS buyer_name, u2.email AS buyer_email,
-       COALESCE((SELECT json_agg(p.url ORDER BY p.sort_order) FROM listing_photos p WHERE p.listing_id=l.id),'[]'::json) AS photos
+       COALESCE((SELECT json_agg(p.url ORDER BY p.sort_order LIMIT 1) FROM listing_photos p WHERE p.listing_id=l.id),'[]'::json) AS photos
        FROM listings l JOIN users u ON u.id=l.seller_id LEFT JOIN users u2 ON u2.id=l.locked_buyer_id
        WHERE l.status='sold' ORDER BY COALESCE(l.sold_at, l.updated_at) DESC LIMIT $1 OFFSET $2`, [parseInt(limit), offset]
     );
@@ -760,72 +759,41 @@ router.post("/moderation/:id/approve", async (req, res, next) => {
     sendEmail(listing.email, listing.name, "✅ Your ad is live on Weka Soko!",
       `Hi ${listing.name},\n\nYour listing "${listing.title}" has been approved and is now live.\n\n${FRONTEND}\n\nGood luck with your sale!\n\n— Weka Soko`
     ).catch(e => console.error("[Moderation approve email]", e.message));
-    
-    // Notify buyers with matching requests
-    (async () => {
-      try {
-        const { findMatchingRequests } = require("../services/matching.service");
-        const matches = await findMatchingRequests(id);
-        if (matches.length > 0) {
-          for (const match of matches.slice(0, 3)) {
-            const desc = (listing.description || "").substring(0, 70);
-            const notifBody = `"${listing.title}" matches your request. ${desc}...`;
-            
-            await query(
-              `INSERT INTO notifications (user_id, type, title, body, data) VALUES ($1, $2, $3, $4, $5)`,
-              [
-                match.user_id,
-                'listing_match',
-                'New listing matches your request!',
-                notifBody,
-                JSON.stringify({
-                  listing_id: id,
-                  request_id: match.id,
-                  listing_title: listing.title,
-                  listing_description: listing.description,
-                  listing_price: listing.price,
-                  seller_id: listing.seller_id,
-                  is_unlocked: listing.is_unlocked || false,
-                  locked_buyer_id: listing.locked_buyer_id || null
-                })
-              ]
-            ).catch(e => console.error("[Notification insert]", e));
-            
-            if (io) {
-              io.to(`user:${match.user_id}`).emit("notification", {
-                type: "listing_match",
-                title: "New listing matches your request!",
-                body: notifBody,
-                data: {
-                  listing_id: id,
-                  request_id: match.id,
-                  listing_title: listing.title,
-                  listing_description: listing.description,
-                  listing_price: listing.price,
-                  seller_id: listing.seller_id,
-                  is_unlocked: listing.is_unlocked || false,
-                  locked_buyer_id: listing.locked_buyer_id || null
-                }
-              });
-            }
-          }
-        }
-      } catch(e) { console.error("[Admin Moderation] Error notifying buyers:", e); }
-    })();
-    
     res.json({ ok: true, message: "Listing approved and live" });
 
-    // Notify matching buyer requests using smart matching
+    // Async: notify buyers whose requests match this newly approved listing
     (async () => {
       try {
-        const fullListing = await query(`SELECT * FROM listings WHERE id = $1`, [id]);
-        if (fullListing.rows.length > 0) {
-          const matches = await findMatchingRequests(id);
-          if (matches.length > 0) {
-            for (const match of matches.slice(0, 3)) { await notifyBuyerOfMatches(match.id, [fullListing.rows[0]], _io); }
+        const { rows: fullListing } = await query(`SELECT title, category, county, description FROM listings WHERE id=$1`, [id]);
+        if (!fullListing.length) return;
+        const l = fullListing[0];
+        const { rows: matches } = await query(
+          `SELECT DISTINCT r.user_id, r.title AS req_title, r.id AS request_id
+           FROM buyer_requests r
+           WHERE r.status='active' AND r.user_id!=$1
+             AND ($2 ILIKE '%'||r.title||'%' OR r.title ILIKE '%'||$2||'%'
+                  OR r.description ILIKE '%'||$2||'%'
+                  OR ($3::varchar IS NOT NULL AND r.county ILIKE $3))`,
+          [listing.seller_id, l.title, l.county || null]
+        );
+        for (const m of matches) {
+          await query(
+            `INSERT INTO notifications (user_id,type,title,body,data)
+             VALUES ($1,'request_match','✅ A listing matching your request is now live!',$2,$3)`,
+            [m.user_id,
+             `"${l.title}" just went live — may match your request: "${m.req_title}". Check it out!`,
+             JSON.stringify({ listing_id: id, request_id: m.request_id })]
+          ).catch(() => {});
+          if (io) {
+            io.to(`user:${m.user_id}`).emit("notification", {
+              type: "request_match",
+              title: "✅ A listing matching your request is now live!",
+              body: `"${l.title}" just went live — may match "${m.req_title}"`,
+              data: { listing_id: id, request_id: m.request_id }
+            });
           }
         }
-      } catch(e) { console.error("[Admin Approve] Error finding matching requests:", e); }
+      } catch (e) { /* non-critical */ }
     })();
   } catch (err) { next(err); }
 });
