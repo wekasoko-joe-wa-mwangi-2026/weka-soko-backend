@@ -9,7 +9,17 @@ cloudinary.config({
 });
 
 /**
- * Upload a file buffer to Cloudinary
+ * Upload a file buffer to Cloudinary.
+ *
+ * Performance notes:
+ * - No eager transformations — these block the upload response while Cloudinary
+ *   processes the image server-side before replying. Instead we apply
+ *   transformations on-the-fly via URL parameters at display time (faster).
+ * - quality: "auto" is still set so Cloudinary optimises on the fly when
+ *   the image is served, without slowing down the upload.
+ * - resource_type: "image" with format "auto" lets Cloudinary pick the best
+ *   format (WebP, AVIF) for the browser automatically.
+ *
  * Returns { url, public_id }
  */
 function uploadBuffer(buffer, options = {}) {
@@ -18,10 +28,10 @@ function uploadBuffer(buffer, options = {}) {
       {
         folder: options.folder || "weka-soko/listings",
         resource_type: "image",
-        transformation: [
-          { width: 1200, height: 900, crop: "limit", quality: "auto:good" },
-          { fetch_format: "auto" },
-        ],
+        // No transformation array — skip server-side resize during upload.
+        // The image is served optimised via URL transforms at display time.
+        format: "auto",       // auto-selects WebP/AVIF per browser
+        quality: "auto",      // automatic quality optimisation on serve
         ...options,
       },
       (error, result) => {
@@ -30,7 +40,6 @@ function uploadBuffer(buffer, options = {}) {
       }
     );
 
-    // Pipe buffer into the upload stream
     const readable = new Readable();
     readable.push(buffer);
     readable.push(null);
@@ -41,8 +50,11 @@ function uploadBuffer(buffer, options = {}) {
 /**
  * Delete a file from Cloudinary by public_id
  */
-async function deleteFile(publicId) {
+async function deleteByPublicId(publicId) {
   return cloudinary.uploader.destroy(publicId);
 }
 
-module.exports = { uploadBuffer, deleteFile };
+// Keep old name as alias so existing imports don't break
+const deleteFile = deleteByPublicId;
+
+module.exports = { uploadBuffer, deleteFile, deleteByPublicId };
