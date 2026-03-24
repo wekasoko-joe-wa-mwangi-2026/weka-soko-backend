@@ -248,6 +248,20 @@ router.post("/", requireAuth, requireSeller, upload.array("photos", 8), async (r
     const scanResult = scanListingForContact({ title, description, reason_for_sale, location });
     if (scanResult.blocked) return res.status(422).json({ error: `Field "${scanResult.field}" contains contact info (${scanResult.reason}). Please remove it.`, violations: [scanResult] });
     const resolvedCounty = county || KENYA_COUNTIES.find(c => location && location.toLowerCase().includes(c.toLowerCase())) || null;
+    // Upload photos to Cloudinary BEFORE opening the DB transaction.
+    // This keeps the transaction fast and avoids holding a DB connection
+    // open while waiting for external HTTP calls to Cloudinary.
+    const tempId = require("crypto").randomUUID(); // temp folder until we have the real listing id
+    let preUploads = [];
+    if (req.files?.length) {
+      preUploads = await Promise.all(
+        req.files.map((f, i) =>
+          uploadBuffer(f.buffer, { folder: `weka-soko/listings/tmp-${tempId}` })
+            .then(r => ({ ...r, sort_order: i }))
+        )
+      );
+    }
+
     const result = await withTransaction(async (client) => {
       const { rows } = await client.query(
         `INSERT INTO listings (seller_id,title,description,reason_for_sale,category,price,location,county,listing_anon_tag,status,linked_request_id,is_contact_public)
@@ -257,10 +271,14 @@ router.post("/", requireAuth, requireSeller, upload.array("photos", 8), async (r
          req.body.is_contact_public==='true']
       );
       const listing = rows[0];
-      if (req.files?.length) {
-        const uploads = await Promise.all(req.files.map((f,i) => uploadBuffer(f.buffer, { folder: `weka-soko/listings/${listing.id}` }).then(r => ({ ...r, sort_order: i }))));
-        await Promise.all(uploads.map(({ url, public_id, sort_order }) => client.query(`INSERT INTO listing_photos (listing_id,url,public_id,sort_order) VALUES ($1,$2,$3,$4)`, [listing.id, url, public_id, sort_order])));
-        listing.photos = uploads.map(p => p.url);
+      if (preUploads.length) {
+        await Promise.all(preUploads.map(({ url, public_id, sort_order }) =>
+          client.query(
+            `INSERT INTO listing_photos (listing_id,url,public_id,sort_order) VALUES ($1,$2,$3,$4)`,
+            [listing.id, url, public_id, sort_order]
+          )
+        ));
+        listing.photos = preUploads.map(p => p.url);
       } else { listing.photos = []; }
       return listing;
     });
@@ -349,6 +367,18 @@ router.patch("/:id", requireAuth, requireSeller, upload.array("photos", 8), asyn
     const resolvedCounty = county || (location ? KENYA_COUNTIES.find(c => location.toLowerCase().includes(c.toLowerCase())) : undefined);
     const scanResult = scanListingForContact({ title, description, reason_for_sale, location });
     if (scanResult.blocked) return res.status(422).json({ error: `Field "${scanResult.field}" contains contact info (${scanResult.reason}). Please remove it.`, violations: [scanResult] });
+    // Upload new photos to Cloudinary BEFORE the DB update — same principle as POST.
+    // Avoids making the user wait for Cloudinary while the DB is blocked.
+    let patchUploads = [];
+    if (req.files?.length) {
+      patchUploads = await Promise.all(
+        req.files.map((f, i) =>
+          uploadBuffer(f.buffer, { folder: `weka-soko/listings/${id}` })
+            .then(r => ({ ...r, sort_order: i + 100 }))
+        )
+      );
+    }
+
     const { rows: preEdit } = await query(`SELECT status FROM listings WHERE id=$1`, [id]);
     const wasRejectedOrPending = ["rejected","pending_review"].includes(preEdit[0]?.status);
     const newStatus = wasRejectedOrPending ? "pending_review" : undefined;
@@ -361,9 +391,10 @@ router.patch("/:id", requireAuth, requireSeller, upload.array("photos", 8), asyn
        updated_at=NOW() WHERE id=$8 RETURNING *`,
       [title, description, reason_for_sale, category, price?parseFloat(price):null, location, resolvedCounty||null, id, newStatus||null]
     );
-    if (req.files?.length) {
-      const uploads = await Promise.all(req.files.map((f,i) => uploadBuffer(f.buffer, { folder: `weka-soko/listings/${id}` }).then(r => ({ ...r, sort_order: i+100 }))));
-      await Promise.all(uploads.map(({ url, public_id, sort_order }) => query(`INSERT INTO listing_photos (listing_id,url,public_id,sort_order) VALUES ($1,$2,$3,$4)`, [id, url, public_id, sort_order])));
+    if (patchUploads.length) {
+      await Promise.all(patchUploads.map(({ url, public_id, sort_order }) =>
+        query(`INSERT INTO listing_photos (listing_id,url,public_id,sort_order) VALUES ($1,$2,$3,$4)`, [id, url, public_id, sort_order])
+      ));
     }
     const { rows: fresh } = await query(
       `SELECT l.*, COALESCE((SELECT json_agg(json_build_object('id',p.id,'url',p.url) ORDER BY p.sort_order) FROM listing_photos p WHERE p.listing_id=l.id),'[]'::json) AS photos FROM listings l WHERE l.id=$1`,
