@@ -100,6 +100,7 @@ async function runMigration() {
     await addCol("listings","moderation_reviewed_at","TIMESTAMPTZ");
     await addCol("listings","moderation_reviewed_by","UUID REFERENCES users(id) ON DELETE SET NULL");
     await addCol("listings","is_contact_public","BOOLEAN DEFAULT FALSE");
+    await addCol("listings","payment_expires_at","TIMESTAMPTZ");
     // NOTE: linked_request_id added AFTER buyer_requests table is created (below)
 
     // Backfill expires_at for existing listings that don't have one
