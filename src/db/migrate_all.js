@@ -97,12 +97,10 @@ async function runMigration() {
     await addCol("listings","moderation_note","TEXT");
     await addCol("listings","reviewed_by","UUID REFERENCES users(id) ON DELETE SET NULL");
     await addCol("listings","reviewed_at","TIMESTAMPTZ");
-    await addCol("listings","moderation_note","TEXT");
-    await addCol("listings","linked_request_id","UUID REFERENCES buyer_requests(id) ON DELETE SET NULL");
-    await addCol("listings","is_contact_public","BOOLEAN DEFAULT FALSE");
-    await client.query(`CREATE INDEX IF NOT EXISTS idx_listings_linked_req ON listings(linked_request_id) WHERE linked_request_id IS NOT NULL`).catch(()=>{});
     await addCol("listings","moderation_reviewed_at","TIMESTAMPTZ");
     await addCol("listings","moderation_reviewed_by","UUID REFERENCES users(id) ON DELETE SET NULL");
+    await addCol("listings","is_contact_public","BOOLEAN DEFAULT FALSE");
+    // NOTE: linked_request_id added AFTER buyer_requests table is created (below)
 
     // Backfill expires_at for existing listings that don't have one
     await client.query(`UPDATE listings SET expires_at = created_at + INTERVAL '75 days' WHERE expires_at IS NULL`).catch(()=>{});
@@ -295,6 +293,10 @@ async function runMigration() {
     await client.query(`ALTER TABLE buyer_requests ADD COLUMN IF NOT EXISTS keywords TEXT`).catch(()=>{});
     await client.query(`ALTER TABLE buyer_requests ADD COLUMN IF NOT EXISTS min_price NUMERIC(12,2)`).catch(()=>{});
     await client.query(`ALTER TABLE buyer_requests ADD COLUMN IF NOT EXISTS max_price NUMERIC(12,2)`).catch(()=>{});
+
+    // Now safe to add FK column referencing buyer_requests
+    await addCol("listings","linked_request_id","UUID REFERENCES buyer_requests(id) ON DELETE SET NULL");
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_listings_linked_req ON listings(linked_request_id) WHERE linked_request_id IS NOT NULL`).catch(()=>{});
 
     // ── SELLER PITCHES ────────────────────────────────────────────────────────
     await client.query(`CREATE TABLE IF NOT EXISTS seller_pitches (
