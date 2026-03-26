@@ -198,11 +198,9 @@ router.post(
       if (user.role === "admin") return res.status(403).json({ error: "Admin accounts must sign in via the Weka Soko Admin panel." });
       if (user.is_suspended) return res.status(403).json({ error: "Account suspended. Contact support@wekasoko.co.ke" });
       // Unverified users must verify their email before logging in
-      if (!user.is_verified) return res.status(403).json({
-        error: "Please verify your email address before signing in. Check your inbox for the verification link.",
-        requiresVerification: true,
-        email: user.email
-      });
+      // Email verification is encouraged but not enforced on login.
+      // Users who haven't verified get a warning flag in the response.
+      const needsVerification = !user.is_verified;
 
       const valid = await bcrypt.compare(password, user.password_hash);
       if (!valid) {
@@ -223,7 +221,7 @@ router.post(
       delete user.password_hash;
       delete user.account_status;
       const token = signToken(user);
-      res.json({ user, token });
+      res.json({ user, token, ...(needsVerification ? { needsVerification: true } : {}) });
     } catch (err) { next(err); }
   }
 );
@@ -584,5 +582,33 @@ router.get("/google/callback", async (req, res) => {
     res.redirect(`${FRONTEND}?auth_error=${encodeURIComponent(err.message)}`);
   }
 });
+
+// ── POST /api/auth/seed-admin ───────────────────────────────────────────────
+// One-time endpoint to create the first admin user on a fresh database.
+// Protected by SEED_SECRET env variable. Disable by removing SEED_SECRET.
+router.post("/seed-admin", async (req, res, next) => {
+  try {
+    const secret = process.env.SEED_SECRET;
+    if (!secret) return res.status(404).json({ error: "Not found" });
+    if (req.body.secret !== secret) return res.status(403).json({ error: "Forbidden" });
+
+    const { name, email, password } = req.body;
+    if (!name || !email || !password) return res.status(400).json({ error: "name, email and password required" });
+
+    // Check if any admin already exists
+    const { rows: existing } = await query(`SELECT id FROM users WHERE role='admin' LIMIT 1`);
+    if (existing.length) return res.status(409).json({ error: "An admin account already exists. Remove SEED_SECRET from env vars." });
+
+    const hash = await require("bcryptjs").hash(password, 12);
+    const anonTag = "AdminWekaSoko01";
+    const { rows } = await query(
+      `INSERT INTO users (name,email,password_hash,role,anon_tag,is_verified,admin_level)
+       VALUES ($1,$2,$3,'admin',$4,true,'super') RETURNING id,name,email,role,admin_level`,
+      [name, email, hash, anonTag]
+    );
+    res.json({ ok: true, message: "Admin created successfully. Now remove SEED_SECRET from Railway env vars.", admin: rows[0] });
+  } catch (err) { next(err); }
+});
+
 
 module.exports = router;
