@@ -22,10 +22,6 @@ const { sendEmail } = require("./services/email.service");
 const statsRoutes = require("./routes/stats");
 const voucherRoutes = require("./routes/vouchers");
 const reviewRoutes = require("./routes/reviews");
-const requestRoutes = require("./routes/requests");
-const pitchRoutes = require("./routes/pitches");
-const pushRoutes = require("./routes/push");
-const { sendPushToUser } = require("./routes/push");
 
 const app = express();
 const server = http.createServer(app);
@@ -44,7 +40,6 @@ const io = new Server(server, {
     credentials: true,
   },
 });
-global._io = io; // accessible from routes
 // Socket.io is handled directly below
 const jwt = require("jsonwebtoken");
 const { detectContactInfo, getSeverity } = require("./services/moderation.service");
@@ -92,9 +87,6 @@ io.on("connection", (socket) => {
       socket.listingId = listingId;
       socket.isSeller  = isSeller;
 
-      // Seller appears as the listing's unique anonymous identity.
-      // Buyer appears as their own account anon_tag.
-      // Both are fully independent — knowing one reveals nothing about the other.
       socket.listingAnonTag = isSeller
         ? (listing.listing_anon_tag || socket.user.anon_tag || "Unknown")
         : (socket.user.anon_tag     || "Unknown");
@@ -105,13 +97,11 @@ io.on("connection", (socket) => {
       // Notify seller when a buyer opens the chat for the first time
       if (!isSeller) {
         const buyerTag = socket.user.anon_tag || "A buyer";
-        // Only notify if buyer has NOT previously messaged this listing
         const { rows: prevMsg } = await query(
           `SELECT 1 FROM chat_messages WHERE listing_id=$1 AND sender_id=$2 LIMIT 1`,
           [listingId, socket.user.id]
         );
         if (!prevMsg.length) {
-          // In-app notification to seller
           await query(
             `INSERT INTO notifications (user_id,type,title,body,data)
              VALUES ($1,'chat_opened','💬 Someone is interested!',$2,$3)`,
@@ -121,19 +111,12 @@ io.on("connection", (socket) => {
               JSON.stringify({ listing_id: listingId })
             ]
           ).catch(()=>{});
-          // Real-time push to seller's socket room
           io.to(`user:${listing.seller_id}`).emit("notification", {
             type: "chat_opened",
             title: "💬 Someone is interested!",
             body: `${buyerTag} opened a chat on your listing.`,
             data: { listing_id: listingId }
           });
-          // Web push to seller's device
-          sendPushToUser(listing.seller_id, {
-            title: "💬 Someone is interested!",
-            body: `${buyerTag} opened a chat on your listing.`,
-            tag: "chat_opened", url: "/"
-          }).catch(()=>{});
         }
       }
     } catch (err) {
@@ -179,14 +162,12 @@ io.on("connection", (socket) => {
             [socket.user.id, listingId, savedMsg[0].id, violation.reason, severity]
           );
 
-          // ── Send violation notification IN CHAT (appears as system message) ──
           const systemBody = severity === "suspended"
             ? `🚫 ACCOUNT SUSPENDED: Your message was blocked and your account has been suspended for sharing contact information ("${violation.reason}"). You have received ${count} violation(s). Contact support@wekasoko.co.ke to appeal.`
             : severity === "flagged"
             ? `⚠️ WARNING (${count}/3): Your message was blocked — it contained contact information ("${violation.reason}"). One more violation will result in account suspension. Contact info can only be shared after the KSh 250 unlock is paid.`
             : `⚠️ WARNING (${count}/3): Your message was blocked — it appeared to contain contact information ("${violation.reason}"). Contact info must stay hidden until the KSh 250 unlock is paid.`;
 
-          // Insert as a system notification message visible only to the violator
           await query(
             `INSERT INTO notifications (user_id, type, title, body, data)
              VALUES ($1, 'violation_warning', $2, $3, $4)`,
@@ -198,8 +179,6 @@ io.on("connection", (socket) => {
             ]
           ).catch(() => {});
 
-          // Real-time push to the violating user's own socket room
-          // ── System message rendered IN the chat inbox ────────────────
           socket.emit("system_warning", {
             id: "sys-" + savedMsg[0].id,
             body: systemBody,
@@ -215,7 +194,6 @@ io.on("connection", (socket) => {
             systemMessage: systemBody,
           });
 
-          // If suspended, send an email too
           if (severity === "suspended") {
             query(`SELECT name, email FROM users WHERE id=$1`, [socket.user.id]).then(r => {
               if (r.rows.length) {
@@ -223,41 +201,18 @@ io.on("connection", (socket) => {
                 sendEmail(
                   u.email, u.name,
                   "🚫 Your Weka Soko account has been suspended",
-                  `Hi ${u.name},
-
-Your account has been suspended for repeatedly sharing contact information in chat before completing an unlock payment.
-
-Violation: "${violation.reason}"
-Total violations: ${count}
-
-If you believe this is a mistake, please contact us at support@wekasoko.co.ke with your account email and a brief explanation.
-
-Contact information must stay private until the KSh 250 unlock fee is paid. This protects both buyers and sellers.
-
-— Weka Soko`
+                  `Hi ${u.name},\n\nYour account has been suspended for repeatedly sharing contact information in chat before completing an unlock payment.\n\nViolation: "${violation.reason}"\nTotal violations: ${count}\n\nIf you believe this is a mistake, please contact us at support@wekasoko.co.ke with your account email and a brief explanation.\n\nContact information must stay private until the KSh 250 unlock fee is paid. This protects both buyers and sellers.\n\n— Weka Soko`
                 ).catch(() => {});
               }
             }).catch(() => {});
           } else {
-            // For warnings/flagged — send email reminder too
             query(`SELECT name, email FROM users WHERE id=$1`, [socket.user.id]).then(r => {
               if (r.rows.length) {
                 const u = r.rows[0];
                 sendEmail(
                   u.email, u.name,
                   severity === "flagged" ? "⚠️ Final warning — Weka Soko" : "⚠️ Message blocked — Weka Soko",
-                  `Hi ${u.name},
-
-Your message in a Weka Soko chat was blocked because it appeared to contain contact information ("${violation.reason}").
-
-Violation count: ${count}/3
-${severity === "flagged" ? "⛔ One more violation will suspend your account." : ""}
-
-Contact information (phone numbers, emails, social handles) must stay hidden until the KSh 250 unlock fee is paid.
-
-If you think this was a mistake, contact support@wekasoko.co.ke.
-
-— Weka Soko`
+                  `Hi ${u.name},\n\nYour message in a Weka Soko chat was blocked because it appeared to contain contact information ("${violation.reason}").\n\nViolation count: ${count}/3\n${severity === "flagged" ? "⛔ One more violation will suspend your account." : ""}\n\nContact information (phone numbers, emails, social handles) must stay hidden until the KSh 250 unlock fee is paid.\n\nIf you think this was a mistake, contact support@wekasoko.co.ke.\n\n— Weka Soko`
                 ).catch(() => {});
               }
             }).catch(() => {});
@@ -270,10 +225,8 @@ If you think this was a mistake, contact support@wekasoko.co.ke.
 
       const isSenderSeller = listing.seller_id === socket.user.id;
 
-      // Determine receiver
       let receiverId;
       if (isSenderSeller) {
-        // Seller replying: use locked buyer OR first person who messaged this listing
         receiverId = listing.locked_buyer_id;
         if (!receiverId) {
           const { rows: buyerRows } = await query(
@@ -285,7 +238,6 @@ If you think this was a mistake, contact support@wekasoko.co.ke.
           if (buyerRows.length) receiverId = buyerRows[0].sender_id;
         }
       } else {
-        // Buyer messaging: always goes to seller
         receiverId = listing.seller_id;
       }
 
@@ -310,14 +262,10 @@ If you think this was a mistake, contact support@wekasoko.co.ke.
         direction: "them",
         blocked: false,
       };
-      // Send to receiver only (NOT broadcast to whole room — that causes duplicates for sender)
       io.to(`user:${receiverId}`).emit("new_message", { ...msgPayload, direction: "them" });
-      // Also notify receiver's inbox if chat modal is closed
       io.to(`user:${receiverId}`).emit("new_message_inbox", { ...msgPayload, listing_id: listingId });
-      // Confirm back to sender with the real DB id so optimistic message can be replaced
       socket.emit("message_sent", { tempId: body.trim(), ...msgPayload, direction: "me" });
 
-      // Notify the receiver
       const actualNotifyId = receiverId;
       if (actualNotifyId) {
         await query(
@@ -329,25 +277,17 @@ If you think this was a mistake, contact support@wekasoko.co.ke.
             JSON.stringify({ listing_id: listingId, sender_id: socket.user.id }),
           ]
         ).catch(() => {});
-        // Also push real-time notification to their socket room
         io.to(`user:${actualNotifyId}`).emit("notification", {
           type: "new_message",
           title: "💬 New Message",
           body: `${socket.listingAnonTag || socket.user.anon_tag || "Someone"}: ${body.trim().slice(0, 60)}`,
           data: { listing_id: listingId },
         });
-        // Web push to recipient's device
-        sendPushToUser(actualNotifyId, {
-          title: "💬 New Message on Weka Soko",
-          body: `${socket.listingAnonTag || socket.user.anon_tag || "Someone"}: ${body.trim().slice(0, 80)}`,
-          tag: "new_message", url: "/"
-        }).catch(()=>{});
-        // Send email notification
         query(`SELECT name, email FROM users WHERE id = $1`, [actualNotifyId]).then(r => {
           if (r.rows.length) {
             const u = r.rows[0];
             sendEmail(u.email, u.name, "💬 New message on Weka Soko",
-              `Hi ${u.name},\n\n${socket.listingAnonTag || socket.user.anon_tag || "Someone"} sent you a message on your listing.\n\nMessage: "${body.trim().slice(0,100)}"\n\nReply on Weka Soko: https://weka-soko.vercel.app`
+              `Hi ${u.name},\n\n${socket.listingAnonTag || socket.user.anon_tag || "Someone"} sent you a message on your listing.\n\nMessage: "${body.trim().slice(0,100)}"\n\nReply on Weka Soko: ${process.env.FRONTEND_URL}`
             ).catch(() => {});
           }
         }).catch(() => {});
@@ -366,7 +306,6 @@ If you think this was a mistake, contact support@wekasoko.co.ke.
     const now = new Date().toISOString();
     query(`UPDATE users SET is_online = FALSE, last_seen = NOW() WHERE id = $1`, [socket.user.id]).catch(()=>{});
     socket.broadcast.emit("user_offline", { userId: socket.user.id, lastSeen: now });
-    // Also notify their active listing room
     if (socket.listingId) {
       socket.to(`listing:${socket.listingId}`).emit("user_offline", { userId: socket.user.id, lastSeen: now });
     }
@@ -379,10 +318,7 @@ If you think this was a mistake, contact support@wekasoko.co.ke.
 });
 
 // ── Express Middleware ─────────────────────────────────────────────────────────
-// Trust Railway's proxy (required for rate limiting to work correctly)
-app.set("io", io);
 app.set("trust proxy", 1);
-// Enhanced security headers
 app.use(helmet({
   contentSecurityPolicy: {
     directives: {
@@ -390,14 +326,12 @@ app.use(helmet({
       styleSrc: ["'self'", "'unsafe-inline'"],
       scriptSrc: ["'self'"],
       imgSrc: ["'self'", "data:", "https://res.cloudinary.com"],
-      connectSrc: ["'self'", "https://weka-soko-backend-production.up.railway.app"],
+      connectSrc: ["'self'", "https://wekasokobackend.up.railway.app"],
     },
   },
   crossOriginEmbedderPolicy: false,
 }));
-// Prevent parameter pollution
 app.use((req, _res, next) => {
-  // Strip any duplicate query params that could cause HPP
   if (req.query) {
     for (const key of Object.keys(req.query)) {
       if (Array.isArray(req.query[key])) req.query[key] = req.query[key][0];
@@ -405,7 +339,6 @@ app.use((req, _res, next) => {
   }
   next();
 });
-// Basic XSS sanitization on text body fields
 app.use((req, _res, next) => {
   if (req.body && typeof req.body === "object") {
     const sanitize = (val) => {
@@ -424,7 +357,6 @@ app.use((req, _res, next) => {
 });
 app.use(cors({
   origin: function (origin, callback) {
-    // Allow requests with no origin (mobile apps, curl, Postman)
     if (!origin) return callback(null, true);
     const allowed = [
       process.env.FRONTEND_URL,
@@ -432,7 +364,6 @@ app.use(cors({
       "http://localhost:3000",
       "http://localhost:3001",
     ].filter(Boolean);
-    // Also allow any vercel.app subdomain for this project
     const isVercel = /^https:\/\/weka-soko[^.]*\.vercel\.app$/.test(origin);
     if (allowed.includes(origin) || isVercel) {
       callback(null, true);
@@ -448,12 +379,12 @@ app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
 // Global rate limiter
 const globalLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 min
+  windowMs: 15 * 60 * 1000,
   max: 300,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: "Too many requests. Please try again later." },
-  skip: (req) => req.path === "/health", // don't rate-limit health checks
+  skip: (req) => req.path === "/health",
 });
 // Slow down repeated auth failures
 const authSlowDown = rateLimit({
@@ -468,8 +399,8 @@ app.use(globalLimiter);
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 50,
-  message: { error: "Too many auth attempts. Please try again in 15 minutes." },
-  skipSuccessfulRequests: true, // successful signups/logins don't count toward limit
+  skipSuccessfulRequests: true,
+  message: { error: "Too many auth attempts." },
 });
 
 // Extra-strict limiter for password reset — 5 per IP per hour
@@ -488,15 +419,11 @@ app.use("/api/listings", listingRoutes);
 app.use("/api/payments", paymentRoutes);
 app.use("/api/chat", chatRoutes);
 adminRoutes.setIO(io);
-adminRoutes.setPushSender(sendPushToUser);
 app.use("/api/admin", adminRoutes);
 app.use("/api/notifications", notificationRoutes);
 app.use("/api/stats", statsRoutes);
 app.use("/api/vouchers", voucherRoutes);
 app.use("/api/reviews", reviewRoutes);
-app.use("/api/requests", requestRoutes);
-app.use("/api/pitches", pitchRoutes);
-app.use("/api/push", pushRoutes);
 
 // ── Health Check ──────────────────────────────────────────────────────────────
 app.get("/health", async (req, res) => {
@@ -523,8 +450,8 @@ app.use((req, res) => {
   res.status(404).json({ error: `Route ${req.method} ${req.path} not found` });
 });
 
-// ── Start Server (runs migration first, then starts) ─────────────────────────
-const PORT = process.env.PORT || 8080;
+// ── Start Server ─────────────────────────────────────────────────────────────
+const PORT = process.env.PORT || 5000;
 const { runMigration } = require("./db/migrate_all");
 
 runMigration().then(() => {
@@ -540,17 +467,6 @@ runMigration().then(() => {
 }).catch(err => {
   console.error("❌ Startup failed:", err.message);
   process.exit(1);
-});
-
-// ── Global crash protection ──────────────────────────────────────────────────
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('Unhandled Rejection at:', promise, 'reason:', reason?.message || reason);
-  // Don't crash the process — just log it
-});
-
-process.on('uncaughtException', (err) => {
-  console.error('Uncaught Exception:', err.message);
-  // Don't crash for non-fatal errors
 });
 
 module.exports = { app, server };
