@@ -6,7 +6,7 @@ const crypto = require("crypto");
 const { body, validationResult } = require("express-validator");
 const { query, withTransaction } = require("../db/pool");
 const { requireAuth } = require("../middleware/auth");
-const { sendWelcomeMessage } = require("../services/notification.service");
+// notification.service skipped — WhatsApp not configured
 const { sendEmail } = require("../services/email.service");
 
 const router = express.Router();
@@ -90,10 +90,7 @@ router.post(
         `Hi ${name},\n\nWelcome to Weka Soko! 🎉\n\nYou're almost ready. Please verify your email address to activate your account:\n\n👉 ${link}\n\nThis link expires in 24 hours. Once verified, you can sign in and start using Weka Soko.\n\nIf you didn't create this account, you can safely ignore this email.\n\n— Weka Soko`
       ).catch(e => console.error("[Auth] Verify email:", e.message));
 
-      try {
-        sendWelcomeMessage({ userId: user.id, name, email, phone: phone||null })
-          .catch(e => console.error("[Auth] Welcome msg:", e.message));
-      } catch(e) { console.error("[Auth] Welcome msg sync error:", e.message); }
+      // Welcome message intentionally skipped — WhatsApp not configured
 
       // Do NOT return a token — user must verify email before they can log in
       res.status(201).json({
