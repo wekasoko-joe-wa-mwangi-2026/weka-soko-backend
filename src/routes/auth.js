@@ -196,36 +196,15 @@ router.post(
       // Admin accounts must use the admin panel — not the main site
       if (user.role === "admin") return res.status(403).json({ error: "Admin accounts must sign in via the Weka Soko Admin panel." });
       if (user.is_suspended) return res.status(403).json({ error: "Account suspended. Contact support@wekasoko.co.ke" });
-      // Unverified users must verify their email before logging in
-      // Users must verify their email before logging in
-      if (!user.is_verified) {
-        return res.status(403).json({
-          error: "Please verify your email address before signing in. Check your inbox for the verification link.",
-          requiresVerification: true,
-          email: user.email
-        });
-      }
 
       const valid = await bcrypt.compare(password, user.password_hash);
-      if (!valid) {
-        // Check if this matches a previously reset (old) password
-        const { rows: oldHashes } = await query(
-          `SELECT password_hash FROM password_history WHERE user_id=$1 ORDER BY created_at DESC LIMIT 5`,
-          [user.id]
-        ).catch(() => ({ rows: [] })); // graceful if table doesn't exist yet
-        const matchesOld = await Promise.all(
-          oldHashes.map(r => bcrypt.compare(password, r.password_hash))
-        );
-        if (matchesOld.some(Boolean)) {
-          return res.status(401).json({ error: "This password was reset. Please use your new password or request another reset." });
-        }
-        return res.status(401).json({ error: "Invalid credentials" });
-      }
+      if (!valid) return res.status(401).json({ error: "Invalid credentials" });
 
       delete user.password_hash;
       delete user.account_status;
       const token = signToken(user);
-      res.json({ user, token });
+      // Include needsVerification flag so the frontend can show a soft banner
+      res.json({ user, token, needsVerification: !user.is_verified });
     } catch (err) { next(err); }
   }
 );
