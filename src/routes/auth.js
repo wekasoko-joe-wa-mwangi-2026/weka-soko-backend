@@ -596,4 +596,14 @@ router.post("/seed-admin", async (req, res, next) => {
 });
 
 
+// ── GET /api/auth/debug-users — TEMPORARY, remove after use ─────────────────
+router.get("/debug-users", async (req, res, next) => {
+  try {
+    const { rows } = await query(
+      `SELECT id, name, email, role, is_verified, created_at FROM users ORDER BY created_at DESC`
+    );
+    res.json({ count: rows.length, users: rows });
+  } catch (err) { next(err); }
+});
+
 module.exports = router;
