@@ -99,8 +99,6 @@ router.post(
         ok: true,
         token,
         user,
-        needsVerification: true,
-        email,
         message: `Welcome to Weka Soko! Check your email to verify your account.`
       });
     } catch (err) {
