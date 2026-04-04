@@ -84,15 +84,41 @@ router.post("/violations/:id/review", async (req, res, next) => {
     if (!rows.length) return res.status(404).json({ error: "Violation not found" });
     const v = rows[0];
     await query(`UPDATE chat_violations SET reviewed = TRUE WHERE id = $1`, [id]);
+    const MAX_WARNINGS = 5;
     if (action === "suspend") {
       await query(`UPDATE users SET is_suspended = TRUE WHERE id = $1`, [v.user_id]);
       const notif = { type: "suspension", title: "Account Suspended", body: "Your account has been suspended for violating our chat policies. Contact support@wekasoko.co.ke to appeal." };
       await query(`INSERT INTO notifications (user_id, type, title, body) VALUES ($1, $2, $3, $4)`, [v.user_id, notif.type, notif.title, notif.body]);
       pushNotification(v.user_id, notif);
+      const { rows: uRows } = await query(`SELECT name, email FROM users WHERE id = $1`, [v.user_id]);
+      if (uRows.length) sendEmail(uRows[0].email, uRows[0].name, notif.title, notif.body).catch(() => {});
     } else if (action === "warn") {
-      const notif = { type: "warning", title: "Account Warning", body: "You received a warning for attempting to share contact information in chat. Further violations may result in suspension." };
-      await query(`INSERT INTO notifications (user_id, type, title, body) VALUES ($1, $2, $3, $4)`, [v.user_id, notif.type, notif.title, notif.body]);
-      pushNotification(v.user_id, notif);
+      const { rows: uRows } = await query(
+        `UPDATE users SET violation_count = violation_count + 1 WHERE id = $1 RETURNING violation_count, name, email`,
+        [v.user_id]
+      );
+      if (!uRows.length) return res.status(404).json({ error: "User not found" });
+      const user = uRows[0];
+      if (user.violation_count >= MAX_WARNINGS) {
+        await query(`UPDATE users SET is_suspended = TRUE WHERE id = $1`, [v.user_id]);
+        const notif = {
+          type: "suspension", title: "Account Suspended",
+          body: `Your account has been suspended after receiving ${MAX_WARNINGS} warnings for violating our community guidelines. Contact support@wekasoko.co.ke to appeal.`
+        };
+        await query(`INSERT INTO notifications (user_id, type, title, body) VALUES ($1, $2, $3, $4)`, [v.user_id, notif.type, notif.title, notif.body]);
+        pushNotification(v.user_id, notif);
+        sendEmail(user.email, user.name, notif.title, notif.body).catch(() => {});
+      } else {
+        const strikesLeft = MAX_WARNINGS - user.violation_count;
+        const notif = {
+          type: "warning",
+          title: `Account Warning — Strike ${user.violation_count} of ${MAX_WARNINGS}`,
+          body: `You received a warning for violating our community guidelines. You have ${strikesLeft} strike${strikesLeft === 1 ? "" : "s"} remaining before your account is suspended.\n\nPlease review our community guidelines. Contact support@wekasoko.co.ke if you believe this was issued in error.`
+        };
+        await query(`INSERT INTO notifications (user_id, type, title, body) VALUES ($1, $2, $3, $4)`, [v.user_id, notif.type, notif.title, notif.body]);
+        pushNotification(v.user_id, notif);
+        sendEmail(user.email, user.name, notif.title, notif.body).catch(() => {});
+      }
     }
     res.json({ message: `Violation ${action}d` });
   } catch (err) { next(err); }
@@ -189,6 +215,46 @@ router.post("/users/:id/suspend", async (req, res, next) => {
     const { suspend } = req.body;
     await query(`UPDATE users SET is_suspended = $1 WHERE id = $2`, [!!suspend, id]);
     res.json({ message: `User ${suspend ? "suspended" : "unsuspended"}` });
+  } catch (err) { next(err); }
+});
+
+// ── POST /api/admin/users/:id/warn ───────────────────────────────────────────
+router.post("/users/:id/warn", async (req, res, next) => {
+  try {
+    const { reason = "Violation of community guidelines" } = req.body;
+    const { rows: uRows } = await query(
+      `UPDATE users SET violation_count = violation_count + 1 WHERE id = $1 AND is_suspended = FALSE
+       RETURNING id, name, email, violation_count`,
+      [req.params.id]
+    );
+    if (!uRows.length) {
+      const { rows: check } = await query(`SELECT is_suspended FROM users WHERE id=$1`, [req.params.id]);
+      if (!check.length) return res.status(404).json({ error: "User not found" });
+      if (check[0].is_suspended) return res.status(409).json({ error: "User is already suspended" });
+    }
+    const user = uRows[0];
+    const MAX_WARNINGS = 5;
+    if (user.violation_count >= MAX_WARNINGS) {
+      await query(`UPDATE users SET is_suspended = TRUE WHERE id = $1`, [user.id]);
+      const notif = {
+        type: "suspension", title: "Account Suspended",
+        body: `Your account has been suspended after receiving ${MAX_WARNINGS} warnings for violating our community guidelines. Contact support@wekasoko.co.ke to appeal.`
+      };
+      await query(`INSERT INTO notifications (user_id, type, title, body) VALUES ($1, $2, $3, $4)`, [user.id, notif.type, notif.title, notif.body]);
+      pushNotification(user.id, notif);
+      sendEmail(user.email, user.name, notif.title, notif.body).catch(() => {});
+      return res.json({ message: `User suspended after ${MAX_WARNINGS} warnings`, violation_count: user.violation_count, suspended: true });
+    }
+    const strikesLeft = MAX_WARNINGS - user.violation_count;
+    const notif = {
+      type: "warning",
+      title: `Account Warning — Strike ${user.violation_count} of ${MAX_WARNINGS}`,
+      body: `You received a warning: ${reason}. You have ${strikesLeft} strike${strikesLeft === 1 ? "" : "s"} remaining before your account is suspended.\n\nContact support@wekasoko.co.ke if you believe this warning was issued in error.`
+    };
+    await query(`INSERT INTO notifications (user_id, type, title, body) VALUES ($1, $2, $3, $4)`, [user.id, notif.type, notif.title, notif.body]);
+    pushNotification(user.id, notif);
+    sendEmail(user.email, user.name, notif.title, notif.body).catch(() => {});
+    res.json({ message: `Warning issued (strike ${user.violation_count} of ${MAX_WARNINGS})`, violation_count: user.violation_count, strikes_left: strikesLeft });
   } catch (err) { next(err); }
 });
 

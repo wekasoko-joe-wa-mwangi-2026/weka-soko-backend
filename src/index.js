@@ -445,9 +445,11 @@ app.get("/health", async (req, res) => {
 app.use((err, req, res, next) => {
   console.error("Unhandled error:", err);
   const status = err.status || err.statusCode || 500;
+  const isProd = process.env.NODE_ENV === "production";
+  // In production, hide stack traces but keep meaningful messages for non-500 errors
   res.status(status).json({
-    error: process.env.NODE_ENV === "production" ? "Internal server error" : err.message,
-    ...(process.env.NODE_ENV !== "production" && { stack: err.stack }),
+    error: (isProd && status === 500) ? "Internal server error" : err.message,
+    ...(!isProd && { stack: err.stack }),
   });
 });
 

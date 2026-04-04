@@ -23,9 +23,18 @@ async function getAccessToken() {
   if (cachedToken && Date.now() < tokenExpiry) return cachedToken;
 
   const credentials = Buffer.from(`${CONSUMER_KEY}:${CONSUMER_SECRET}`).toString("base64");
-  const res = await axios.get(`${BASE_URL}/oauth/v1/generate?grant_type=client_credentials`, {
-    headers: { Authorization: `Basic ${credentials}` },
-  });
+  let res;
+  try {
+    res = await axios.get(`${BASE_URL}/oauth/v1/generate?grant_type=client_credentials`, {
+      headers: { Authorization: `Basic ${credentials}` },
+    });
+  } catch (axiosErr) {
+    const msg = axiosErr.response?.data?.errorMessage || axiosErr.message;
+    console.error("[M-Pesa OAuth] Token fetch failed:", axiosErr.response?.status, msg);
+    const err = new Error(`M-Pesa auth failed: ${msg}`);
+    err.status = 502;
+    throw err;
+  }
 
   cachedToken = res.data.access_token;
   tokenExpiry = Date.now() + (res.data.expires_in - 60) * 1000;
@@ -65,7 +74,7 @@ async function initiateSTKPush({ phone, amount, accountRef, description, payment
     BusinessShortCode: SHORTCODE,
     Password: password,
     Timestamp: timestamp,
-    TransactionType: "CustomerPayBillOnline",
+    TransactionType: "CustomerBuyGoodsOnline",
     Amount: Math.ceil(amount),              // M-Pesa only accepts integers
     PartyA: formattedPhone,
     PartyB: SHORTCODE,
@@ -75,11 +84,20 @@ async function initiateSTKPush({ phone, amount, accountRef, description, payment
     TransactionDesc: description || "Weka Soko Payment",
   };
 
-  const res = await axios.post(
-    `${BASE_URL}/mpesa/stkpush/v1/processrequest`,
-    payload,
-    { headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" } }
-  );
+  let res;
+  try {
+    res = await axios.post(
+      `${BASE_URL}/mpesa/stkpush/v1/processrequest`,
+      payload,
+      { headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" } }
+    );
+  } catch (axiosErr) {
+    const safaricomMsg = axiosErr.response?.data?.errorMessage || axiosErr.response?.data?.ResultDesc || axiosErr.message;
+    console.error("[M-Pesa STK Push] Safaricom error:", axiosErr.response?.status, safaricomMsg, JSON.stringify(axiosErr.response?.data));
+    const err = new Error(safaricomMsg || "M-Pesa request failed");
+    err.status = 502;
+    throw err;
+  }
 
   const data = res.data;
 
@@ -91,7 +109,8 @@ async function initiateSTKPush({ phone, amount, accountRef, description, payment
     );
     return { success: true, checkoutRequestId: data.CheckoutRequestID, message: data.CustomerMessage };
   } else {
-    throw new Error(data.errorMessage || "STK Push failed");
+    console.error("[M-Pesa STK Push] ResponseCode non-zero:", data);
+    throw new Error(data.errorMessage || data.ResponseDescription || "STK Push failed");
   }
 }
 

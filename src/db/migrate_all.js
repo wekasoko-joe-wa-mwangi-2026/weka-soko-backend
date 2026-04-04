@@ -233,6 +233,10 @@ async function runMigration() {
       created_at TIMESTAMPTZ DEFAULT NOW()
     );`);
 
+    await addCol("chat_violations","reviewed","BOOLEAN DEFAULT FALSE");
+    await addCol("chat_violations","reviewed_by","UUID REFERENCES users(id) ON DELETE SET NULL");
+    await addCol("chat_violations","reviewed_at","TIMESTAMPTZ");
+
     // ── NOTIFICATIONS ─────────────────────────────────────────────────────────
     await client.query(`CREATE TABLE IF NOT EXISTS notifications (
       id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
