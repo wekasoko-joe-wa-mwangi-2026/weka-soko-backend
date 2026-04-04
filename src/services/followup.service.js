@@ -52,7 +52,7 @@ async function runFollowUps() {
 }
 
 async function sendFollowUp(listing) {
-  const message = `Hi ${listing.seller_name}! 👋\n\nYour Weka Soko listing *"${listing.title}"* has been active for over 2 weeks.\n\nHas it been sold yet? If yes, please log in and mark it as sold so we can keep the platform up to date.\n\nIf it's still available, no action needed — your ad stays live! 🟢\n\nVisit: https://weka-soko.vercel.app\n\n— Weka Soko Team`;
+  const message = `Hi ${listing.seller_name}! \n\nYour Weka Soko listing *"${listing.title}"* has been active for over 2 weeks.\n\nHas it been sold yet? If yes, please log in and mark it as sold so we can keep the platform up to date.\n\nIf it's still available, no action needed — your ad stays live! \n\nVisit: https://weka-soko.vercel.app\n\n— Weka Soko Team`;
 
   // 1. Send WhatsApp via Meta API
   if (process.env.WHATSAPP_TOKEN && listing.whatsapp_phone) {

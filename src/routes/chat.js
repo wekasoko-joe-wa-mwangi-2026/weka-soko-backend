@@ -12,7 +12,7 @@ router.get("/threads/mine", requireAuth, async (req, res, next) => {
          l.id AS listing_id, l.title, l.price, l.status,
          l.seller_id, l.is_contact_public, l.locked_buyer_id,
          -- Never show blocked message body in thread preview
-         CASE WHEN m.is_blocked THEN '🚫 Message removed' ELSE m.body END AS last_message,
+         CASE WHEN m.is_blocked THEN 'Message removed' ELSE m.body END AS last_message,
          m.created_at AS last_message_at,
          (SELECT COUNT(*) FROM chat_messages c
           WHERE c.listing_id = l.id AND c.sender_id != $1 AND c.is_read = FALSE) AS unread_count,

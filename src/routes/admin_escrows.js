@@ -44,7 +44,7 @@ router.post("/:id/release", requireAdmin, async (req, res, next) => {
         [rows[0].listing_id]
       );
       // Notify seller
-      await sendNotification(rows[0].seller_id, "escrow_released", "💰 Funds Released!", `Admin has released funds for ${rows[0].listing_title}.`);
+      await sendNotification(rows[0].seller_id, "escrow_released", " Funds Released!", `Admin has released funds for ${rows[0].listing_title}.`);
     });
     res.json({ message: "Escrow funds released to seller." });
   } catch (err) {
@@ -69,7 +69,7 @@ router.post("/:id/refund", requireAdmin, async (req, res, next) => {
         [req.user.id, id]
       );
       // Notify buyer
-      await sendNotification(rows[0].buyer_id, "escrow_refunded", "💸 Escrow Refunded", `Admin has refunded funds for ${rows[0].listing_title}.`);
+      await sendNotification(rows[0].buyer_id, "escrow_refunded", " Escrow Refunded", `Admin has refunded funds for ${rows[0].listing_title}.`);
     });
     res.json({ message: "Escrow funds refunded to buyer." });
   } catch (err) {

@@ -107,7 +107,7 @@ io.on("connection", (socket) => {
         if (!prevMsg.length) {
           await query(
             `INSERT INTO notifications (user_id,type,title,body,data)
-             VALUES ($1,'chat_opened','💬 Someone is interested!',$2,$3)`,
+             VALUES ($1,'chat_opened','Someone is interested!',$2,$3)`,
             [
               listing.seller_id,
               `${buyerTag} opened a chat on your listing. They haven't messaged yet — they may be typing!`,
@@ -116,7 +116,7 @@ io.on("connection", (socket) => {
           ).catch(()=>{});
           io.to(`user:${listing.seller_id}`).emit("notification", {
             type: "chat_opened",
-            title: "💬 Someone is interested!",
+            title: "Someone is interested!",
             body: `${buyerTag} opened a chat on your listing.`,
             data: { listing_id: listingId }
           });
@@ -166,17 +166,17 @@ io.on("connection", (socket) => {
           );
 
           const systemBody = severity === "suspended"
-            ? `🚫 ACCOUNT SUSPENDED: Your message was blocked and your account has been suspended for sharing contact information ("${violation.reason}"). You have received ${count} violation(s). Contact support@wekasoko.co.ke to appeal.`
+            ? `ACCOUNT SUSPENDED: Your message was blocked and your account has been suspended for sharing contact information ("${violation.reason}"). You have received ${count} violation(s). Contact support@wekasoko.co.ke to appeal.`
             : severity === "flagged"
-            ? `⚠️ WARNING (${count}/3): Your message was blocked — it contained contact information ("${violation.reason}"). One more violation will result in account suspension. Contact info can only be shared after the KSh 250 unlock is paid.`
-            : `⚠️ WARNING (${count}/3): Your message was blocked — it appeared to contain contact information ("${violation.reason}"). Contact info must stay hidden until the KSh 250 unlock is paid.`;
+            ? `WARNING (${count}/3): Your message was blocked — it contained contact information ("${violation.reason}"). One more violation will result in account suspension. Contact info can only be shared after the KSh 250 unlock is paid.`
+            : `WARNING (${count}/3): Your message was blocked — it appeared to contain contact information ("${violation.reason}"). Contact info must stay hidden until the KSh 250 unlock is paid.`;
 
           await query(
             `INSERT INTO notifications (user_id, type, title, body, data)
              VALUES ($1, 'violation_warning', $2, $3, $4)`,
             [
               socket.user.id,
-              severity === "suspended" ? "🚫 Account Suspended" : "⚠️ Message Blocked",
+              severity === "suspended" ? "Account Suspended" : "Message Blocked",
               systemBody,
               JSON.stringify({ listing_id: listingId, severity, violation_count: count }),
             ]
@@ -203,7 +203,7 @@ io.on("connection", (socket) => {
                 const u = r.rows[0];
                 sendEmail(
                   u.email, u.name,
-                  "🚫 Your Weka Soko account has been suspended",
+                  "Your Weka Soko account has been suspended",
                   `Hi ${u.name},\n\nYour account has been suspended for repeatedly sharing contact information in chat before completing an unlock payment.\n\nViolation: "${violation.reason}"\nTotal violations: ${count}\n\nIf you believe this is a mistake, please contact us at support@wekasoko.co.ke with your account email and a brief explanation.\n\nContact information must stay private until the KSh 250 unlock fee is paid. This protects both buyers and sellers.\n\n— Weka Soko`
                 ).catch(() => {});
               }
@@ -214,8 +214,8 @@ io.on("connection", (socket) => {
                 const u = r.rows[0];
                 sendEmail(
                   u.email, u.name,
-                  severity === "flagged" ? "⚠️ Final warning — Weka Soko" : "⚠️ Message blocked — Weka Soko",
-                  `Hi ${u.name},\n\nYour message in a Weka Soko chat was blocked because it appeared to contain contact information ("${violation.reason}").\n\nViolation count: ${count}/3\n${severity === "flagged" ? "⛔ One more violation will suspend your account." : ""}\n\nContact information (phone numbers, emails, social handles) must stay hidden until the KSh 250 unlock fee is paid.\n\nIf you think this was a mistake, contact support@wekasoko.co.ke.\n\n— Weka Soko`
+                  severity === "flagged" ? "Final warning — Weka Soko" : "Message blocked — Weka Soko",
+                  `Hi ${u.name},\n\nYour message in a Weka Soko chat was blocked because it appeared to contain contact information ("${violation.reason}").\n\nViolation count: ${count}/3\n${severity === "flagged" ? " One more violation will suspend your account." : ""}\n\nContact information (phone numbers, emails, social handles) must stay hidden until the KSh 250 unlock fee is paid.\n\nIf you think this was a mistake, contact support@wekasoko.co.ke.\n\n— Weka Soko`
                 ).catch(() => {});
               }
             }).catch(() => {});
@@ -273,7 +273,7 @@ io.on("connection", (socket) => {
       if (actualNotifyId) {
         await query(
           `INSERT INTO notifications (user_id, type, title, body, data)
-           VALUES ($1, 'new_message', '💬 New Message', $2, $3)`,
+           VALUES ($1, 'new_message', 'New Message', $2, $3)`,
           [
             actualNotifyId,
             `${socket.listingAnonTag || socket.user.anon_tag || "Someone"}: ${body.trim().slice(0, 80)}${body.length > 80 ? "..." : ""}`,
@@ -282,14 +282,14 @@ io.on("connection", (socket) => {
         ).catch(() => {});
         io.to(`user:${actualNotifyId}`).emit("notification", {
           type: "new_message",
-          title: "💬 New Message",
+          title: "New Message",
           body: `${socket.listingAnonTag || socket.user.anon_tag || "Someone"}: ${body.trim().slice(0, 60)}`,
           data: { listing_id: listingId },
         });
         query(`SELECT name, email FROM users WHERE id = $1`, [actualNotifyId]).then(r => {
           if (r.rows.length) {
             const u = r.rows[0];
-            sendEmail(u.email, u.name, "💬 New message on Weka Soko",
+            sendEmail(u.email, u.name, "New message on Weka Soko",
               `Hi ${u.name},\n\n${socket.listingAnonTag || socket.user.anon_tag || "Someone"} sent you a message on your listing.\n\nMessage: "${body.trim().slice(0,100)}"\n\nReply on Weka Soko: ${process.env.FRONTEND_URL}`
             ).catch(() => {});
           }
@@ -464,14 +464,14 @@ runMigration().then(() => {
   server.listen(PORT, () => {
     console.log(`
 ╔══════════════════════════════════════════╗
-║       🛍  WEKA SOKO API RUNNING          ║
+║         WEKA SOKO API RUNNING          ║
 ║   Port: ${PORT}  |  Env: ${process.env.NODE_ENV || "development"}        ║
 ╚══════════════════════════════════════════╝
   `);
     startCronJobs();
   });
 }).catch(err => {
-  console.error("❌ Startup failed:", err.message);
+  console.error("Startup failed:", err.message);
   process.exit(1);
 });
 

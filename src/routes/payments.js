@@ -141,7 +141,7 @@ router.post("/escrow/:id/confirm-receipt", requireAuth, async (req, res, next) =
     if (!rows.length) return res.status(404).json({ error: "Escrow not found or not yours" });
     await query(`UPDATE escrows SET buyer_confirmed=TRUE, buyer_confirmed_at=NOW(), status='released', released_at=NOW(), released_by=$1 WHERE id=$2`, [req.user.id, req.params.id]);
     await query(`UPDATE listings SET status='sold' WHERE id=$1`, [rows[0].listing_id]);
-    await query(`INSERT INTO notifications (user_id,type,title,body,data) VALUES ($1,'escrow_released','💰 Funds Released!',$2,$3)`,
+    await query(`INSERT INTO notifications (user_id,type,title,body,data) VALUES ($1,'escrow_released','Funds Released!',$2,$3)`,
       [rows[0].seller_id, "The buyer has confirmed receipt. Your funds have been released.", JSON.stringify({ escrow_id: req.params.id })]);
     res.json({ message: "Receipt confirmed. Funds released to seller." });
   } catch (err) { next(err); }

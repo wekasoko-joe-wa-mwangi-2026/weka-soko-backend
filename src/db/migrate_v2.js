@@ -104,9 +104,9 @@ async function migrate() {
   try {
     console.log("Running Weka Soko v2 migration...");
     await client.query(schema);
-    console.log("✅ Migration v2 complete!");
+    console.log(" Migration v2 complete!");
   } catch (err) {
-    console.error("❌ Migration failed:", err.message);
+    console.error(" Migration failed:", err.message);
     process.exit(1);
   } finally {
     client.release();

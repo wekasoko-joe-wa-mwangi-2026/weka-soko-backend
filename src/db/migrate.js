@@ -216,11 +216,11 @@ CREATE TRIGGER touch_escrows BEFORE UPDATE ON escrows FOR EACH ROW EXECUTE FUNCT
 async function migrate() {
   const client = await pool.connect();
   try {
-    console.log("🗄️  Running Weka Soko migrations...");
+    console.log("  Running Weka Soko migrations...");
     await client.query(schema);
-    console.log("✅ Migration complete!");
+    console.log(" Migration complete!");
   } catch (err) {
-    console.error("❌ Migration failed:", err.message);
+    console.error(" Migration failed:", err.message);
     process.exit(1);
   } finally {
     client.release();

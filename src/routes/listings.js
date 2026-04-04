@@ -269,7 +269,7 @@ router.post("/", requireAuth, requireSeller, upload.array("photos", 8), async (r
         for (const match of matches) {
           await query(
             `INSERT INTO notifications (user_id,type,title,body,data)
-             VALUES ($1,'request_match','🛒 A listing matches your request!',$2,$3)`,
+             VALUES ($1,'request_match','A listing matches your request!',$2,$3)`,
             [match.user_id,
              `"${result.title}" was just listed — it may match your request: "${match.title}"`,
              JSON.stringify({ listing_id: result.id, request_id: match.request_id })]
@@ -278,7 +278,7 @@ router.post("/", requireAuth, requireSeller, upload.array("photos", 8), async (r
           if (io) {
             io.to(`user:${match.user_id}`).emit("notification", {
               type: "request_match",
-              title: "🛒 A listing matches your request!",
+              title: "A listing matches your request!",
               body: `"${result.title}" was just listed — may match your request: "${match.title}"`,
               data: { listing_id: result.id, request_id: match.request_id }
             });
@@ -436,7 +436,7 @@ router.post("/:id/lock-in", requireAuth, async (req, res, next) => {
     if (listing.locked_buyer_id) return res.status(409).json({ error: "Another buyer has already locked in" });
     await query(`UPDATE listings SET locked_buyer_id=$1,locked_at=NOW(),status='locked',interest_count=interest_count+1 WHERE id=$2`, [req.user.id, req.params.id]);
     await query(
-      `INSERT INTO notifications (user_id,type,title,body,data) VALUES ($1,'buyer_locked_in','🔥 A buyer has locked in!',$2,$3)`,
+      `INSERT INTO notifications (user_id,type,title,body,data) VALUES ($1,'buyer_locked_in','A buyer has locked in!',$2,$3)`,
       [listing.seller_id, `A serious buyer locked in on "${listing.title}". Pay KSh 250 to reveal their contact.`, JSON.stringify({ listing_id: req.params.id })]
     );
     res.json({ message: "Locked in. Seller has been notified." });
@@ -460,7 +460,7 @@ router.post("/:id/report", requireAuth, async (req, res, next) => {
     const { rows: cnt } = await query(`SELECT COUNT(*) FROM listing_reports WHERE listing_id=$1 AND status='pending'`, [req.params.id]);
     if (parseInt(cnt[0].count) >= 5) await query(`UPDATE listings SET status='flagged' WHERE id=$1 AND status='active'`, [req.params.id]);
     await query(
-      `INSERT INTO notifications (user_id,type,title,body,data) SELECT id,'listing_report','🚩 Listing Reported',$1,$2 FROM users WHERE role='admin'`,
+      `INSERT INTO notifications (user_id,type,title,body,data) SELECT id,'listing_report','Listing Reported',$1,$2 FROM users WHERE role='admin'`,
       [`"${ls[0].title}" was reported for: ${reason}`, JSON.stringify({ listing_id: req.params.id, reason, report_count: parseInt(cnt[0].count)+1 })]
     ).catch(()=>{});
     res.json({ ok: true, message: "Report submitted. Our team will review it shortly." });

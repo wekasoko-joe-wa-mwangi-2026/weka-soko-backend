@@ -7,8 +7,8 @@ const { query } = require("../db/pool");
 const isLive = process.env.MPESA_ENV === "live";
 const BASE_URL = process.env.MPESA_BASE_URL ||
   (isLive ? "https://api.safaricom.co.ke" : "https://sandbox.safaricom.co.ke");
-if (isLive) console.log("💳 M-Pesa: LIVE mode");
-else console.log("💳 M-Pesa: SANDBOX mode");
+if (isLive) console.log(" M-Pesa: LIVE mode");
+else console.log(" M-Pesa: SANDBOX mode");
 const SHORTCODE = process.env.MPESA_SHORTCODE;
 const PASSKEY = process.env.MPESA_PASSKEY;
 const CONSUMER_KEY = process.env.MPESA_CONSUMER_KEY;

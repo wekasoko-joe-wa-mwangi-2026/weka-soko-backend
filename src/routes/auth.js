@@ -39,7 +39,7 @@ async function sendVerificationEmail(userId, email, name) {
   const link = `${FRONTEND}?verify_email=${token}`;
   sendEmail(
     email, name,
-    "✅ Verify your Weka Soko email",
+    "Verify your Weka Soko email",
     `Hi ${name},\n\nThank you for joining Weka Soko!\n\nPlease verify your email to unlock all features:\n${link}\n\nThis link expires in 24 hours.\n\nIf you didn't create an account, please ignore this email.\n\n— Weka Soko`
   ).catch(e => console.error("[Auth] Verify email failed:", e.message));
 }
@@ -86,8 +86,8 @@ router.post(
       const link = `${FRONTEND}?verify_email=${verifyToken}`;
       sendEmail(
         email, name,
-        "✅ Verify your Weka Soko email — one step left!",
-        `Hi ${name},\n\nWelcome to Weka Soko! 🎉\n\nYou're almost ready. Please verify your email address to activate your account:\n\n👉 ${link}\n\nThis link expires in 24 hours. Once verified, you can sign in and start using Weka Soko.\n\nIf you didn't create this account, you can safely ignore this email.\n\n— Weka Soko`
+        "Verify your Weka Soko email — one step left!",
+        `Hi ${name},\n\nWelcome to Weka Soko! \n\nYou're almost ready. Please verify your email address to activate your account:\n\n ${link}\n\nThis link expires in 24 hours. Once verified, you can sign in and start using Weka Soko.\n\nIf you didn't create this account, you can safely ignore this email.\n\n— Weka Soko`
       ).catch(e => console.error("[Auth] Verify email:", e.message));
 
       // Welcome message intentionally skipped — WhatsApp not configured
@@ -442,7 +442,7 @@ router.post("/forgot-password", async (req, res, next) => {
 
     sendEmail(
       user.email, user.name,
-      "🔐 Reset your Weka Soko password",
+      "Reset your Weka Soko password",
       `Hi ${user.name},\n\nYou requested a password reset.\n\nSet a new password here (valid for 1 hour):\n${resetLink}\n\nIf you didn't request this, ignore this email. Your password is unchanged.\n\n— Weka Soko`
     ).catch(e => console.error("[Reset email]", e.message));
 

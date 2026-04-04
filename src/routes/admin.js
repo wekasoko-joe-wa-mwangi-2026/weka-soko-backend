@@ -86,11 +86,11 @@ router.post("/violations/:id/review", async (req, res, next) => {
     await query(`UPDATE chat_violations SET reviewed = TRUE WHERE id = $1`, [id]);
     if (action === "suspend") {
       await query(`UPDATE users SET is_suspended = TRUE WHERE id = $1`, [v.user_id]);
-      const notif = { type: "suspension", title: "🚫 Account Suspended", body: "Your account has been suspended for violating our chat policies. Contact support@wekasoko.co.ke to appeal." };
+      const notif = { type: "suspension", title: "Account Suspended", body: "Your account has been suspended for violating our chat policies. Contact support@wekasoko.co.ke to appeal." };
       await query(`INSERT INTO notifications (user_id, type, title, body) VALUES ($1, $2, $3, $4)`, [v.user_id, notif.type, notif.title, notif.body]);
       pushNotification(v.user_id, notif);
     } else if (action === "warn") {
-      const notif = { type: "warning", title: "⚠️ Account Warning", body: "You received a warning for attempting to share contact information in chat. Further violations may result in suspension." };
+      const notif = { type: "warning", title: "Account Warning", body: "You received a warning for attempting to share contact information in chat. Further violations may result in suspension." };
       await query(`INSERT INTO notifications (user_id, type, title, body) VALUES ($1, $2, $3, $4)`, [v.user_id, notif.type, notif.title, notif.body]);
       pushNotification(v.user_id, notif);
     }
@@ -127,7 +127,7 @@ router.post("/escrows/:id/release", async (req, res, next) => {
     const escrow = rows[0];
     await query(`UPDATE escrows SET status = 'released', released_at = NOW(), released_by = $1, notes = $2 WHERE id = $3`, [req.user.id, notes || "Admin force release", id]);
     await query(`UPDATE listings SET status = 'sold' WHERE id = $1`, [escrow.listing_id]);
-    await query(`INSERT INTO notifications (user_id, type, title, body) VALUES ($1, 'escrow_released', '💰 Funds Released', 'An admin has released your escrow funds. They should reflect in your M-Pesa shortly.')`, [escrow.seller_id]);
+    await query(`INSERT INTO notifications (user_id, type, title, body) VALUES ($1, 'escrow_released', ' Funds Released', 'An admin has released your escrow funds. They should reflect in your M-Pesa shortly.')`, [escrow.seller_id]);
     res.json({ message: "Escrow released successfully" });
   } catch (err) { next(err); }
 });
@@ -160,7 +160,7 @@ router.post("/disputes/:id/resolve", async (req, res, next) => {
     const escrowStatus = release_to === "seller" ? "released" : "refunded";
     await query(`UPDATE escrows SET status = $1, released_at = NOW(), released_by = $2 WHERE id = $3`, [escrowStatus, req.user.id, dispute.escrow_id]);
     const notifyUserId = release_to === "seller" ? escrow.seller_id : escrow.buyer_id;
-    await query(`INSERT INTO notifications (user_id, type, title, body) VALUES ($1, 'dispute_resolved', '⚖️ Dispute Resolved', $2)`, [notifyUserId, `Your dispute has been resolved in your favour. Resolution: ${resolution}`]);
+    await query(`INSERT INTO notifications (user_id, type, title, body) VALUES ($1, 'dispute_resolved', 'Dispute Resolved', $2)`, [notifyUserId, `Your dispute has been resolved in your favour. Resolution: ${resolution}`]);
     res.json({ message: "Dispute resolved" });
   } catch (err) { next(err); }
 });
@@ -292,7 +292,7 @@ router.patch("/listings/:id", async (req, res, next) => {
     const changed = Object.keys(req.body).filter(k => k !== "free_unlock").join(", ");
     if (changed) {
       await query(
-        `INSERT INTO notifications (user_id, type, title, body, data) VALUES ($1, 'admin_edit', '✏️ Your listing was edited by admin', $2, $3)`,
+        `INSERT INTO notifications (user_id, type, title, body, data) VALUES ($1, 'admin_edit', 'Your listing was edited by admin', $2, $3)`,
         [rows[0].seller_id, `An admin edited your listing "${rows[0].title}". Fields changed: ${changed}. If you have questions, contact support@wekasoko.co.ke`, JSON.stringify({ listing_id: req.params.id, changed_fields: Object.keys(req.body) })]
       ).catch(() => {});
     }
@@ -323,7 +323,7 @@ router.post("/listings/:id/free-unlock", async (req, res, next) => {
     const { id } = req.params;
     const { rows } = await query(`UPDATE listings SET is_unlocked = TRUE, updated_at = NOW() WHERE id = $1 RETURNING *`, [id]);
     if (!rows.length) return res.status(404).json({ error: "Listing not found" });
-    await query(`INSERT INTO notifications (user_id, type, title, body) VALUES ($1, 'admin_unlock', '🔓 Admin Unlocked', 'An admin has unlocked this listing for free. You can now see the buyer contact details.')`, [rows[0].seller_id]);
+    await query(`INSERT INTO notifications (user_id, type, title, body) VALUES ($1, 'admin_unlock', 'Admin Unlocked', 'An admin has unlocked this listing for free. You can now see the buyer contact details.')`, [rows[0].seller_id]);
     res.json({ message: "Listing unlocked for free", listing: rows[0] });
   } catch (err) { next(err); }
 });
@@ -512,9 +512,9 @@ router.post("/listings/:id/mark-sold", async (req, res, next) => {
     );
 
     // Notify the seller
-    const channelLabel = sold_channel === "platform" ? "via Weka Soko 🛒" : "outside the platform 🤝";
+    const channelLabel = sold_channel === "platform" ? "via Weka Soko " : "outside the platform ";
     await query(
-      `INSERT INTO notifications (user_id, type, title, body, data) VALUES ($1,'listing_sold','✅ Marked as Sold',$2,$3)`,
+      `INSERT INTO notifications (user_id, type, title, body, data) VALUES ($1,'listing_sold','Marked as Sold',$2,$3)`,
       [listing.seller_id,
        `Your listing "${listing.title}" has been marked as sold ${channelLabel} by an admin.`,
        JSON.stringify({ listing_id: id, sold_channel })]
@@ -522,7 +522,7 @@ router.post("/listings/:id/mark-sold", async (req, res, next) => {
 
     pushNotification(listing.seller_id, {
       type: "listing_sold",
-      title: "✅ Listing Marked Sold",
+      title: "Listing Marked Sold",
       body: `"${listing.title}" has been marked as sold ${channelLabel}.`,
     });
 
@@ -693,7 +693,7 @@ router.post("/invite", async (req, res, next) => {
       userId = rows[0].id;
     }
     const { sendEmail } = require("../services/email.service");
-    await sendEmail(email, name, "🔐 You've been invited to Weka Soko Admin",
+    await sendEmail(email, name, "You have been invited to Weka Soko Admin",
       `Hi ${name},\n\nYou have been invited to manage the Weka Soko admin panel with ${admin_level} access.\n\nLogin at: ${ADMIN_URL}\nEmail: ${email}\nTemporary password: ${tempPassword}\n\nPlease change your password after first login.\n\nAccess level: ${admin_level}\n— Weka Soko`
     );
     res.json({ ok: true, message: `Admin invite sent to ${email} with ${admin_level} access.`, userId });
@@ -751,12 +751,12 @@ router.post("/moderation/:id/approve", async (req, res, next) => {
     const listing = check[0];
     await query(`UPDATE listings SET status='active', moderation_note=NULL, reviewed_at=NOW(), updated_at=NOW() WHERE id=$1`, [id]);
     await query(
-      `INSERT INTO notifications (user_id, type, title, body, data) VALUES ($1, 'listing_approved', '✅ Ad Approved!', $2, $3)`,
+      `INSERT INTO notifications (user_id, type, title, body, data) VALUES ($1, 'listing_approved', 'Ad Approved!', $2, $3)`,
       [listing.seller_id, `Great news! Your listing "${listing.title}" has been approved and is now live on Weka Soko.`, JSON.stringify({ listing_id: id })]
     ).catch(() => {});
     const io = req.app?.get("io");
-    if (io) io.to(`user:${listing.seller_id}`).emit("notification", { type: "listing_approved", title: "✅ Ad Approved!", body: `Your listing "${listing.title}" is now live!`, data: { listing_id: id } });
-    sendEmail(listing.email, listing.name, "✅ Your ad is live on Weka Soko!",
+    if (io) io.to(`user:${listing.seller_id}`).emit("notification", { type: "listing_approved", title: "Ad Approved!", body: `Your listing "${listing.title}" is now live!`, data: { listing_id: id } });
+    sendEmail(listing.email, listing.name, "Your ad is live on Weka Soko!",
       `Hi ${listing.name},\n\nYour listing "${listing.title}" has been approved and is now live.\n\n${FRONTEND}\n\nGood luck with your sale!\n\n— Weka Soko`
     ).catch(e => console.error("[Moderation approve email]", e.message));
     res.json({ ok: true, message: "Listing approved and live" });
@@ -779,7 +779,7 @@ router.post("/moderation/:id/approve", async (req, res, next) => {
         for (const m of matches) {
           await query(
             `INSERT INTO notifications (user_id,type,title,body,data)
-             VALUES ($1,'request_match','✅ A listing matching your request is now live!',$2,$3)`,
+             VALUES ($1,'request_match','A listing matching your request is now live!',$2,$3)`,
             [m.user_id,
              `"${l.title}" just went live — may match your request: "${m.req_title}". Check it out!`,
              JSON.stringify({ listing_id: id, request_id: m.request_id })]
@@ -787,7 +787,7 @@ router.post("/moderation/:id/approve", async (req, res, next) => {
           if (io) {
             io.to(`user:${m.user_id}`).emit("notification", {
               type: "request_match",
-              title: "✅ A listing matching your request is now live!",
+              title: "A listing matching your request is now live!",
               body: `"${l.title}" just went live — may match "${m.req_title}"`,
               data: { listing_id: id, request_id: m.request_id }
             });
@@ -810,12 +810,12 @@ router.post("/moderation/:id/reject", async (req, res, next) => {
     const listing = check[0];
     await query(`UPDATE listings SET status='rejected', moderation_note=$1, reviewed_at=NOW(), updated_at=NOW() WHERE id=$2`, [reason.trim(), id]);
     await query(
-      `INSERT INTO notifications (user_id, type, title, body, data) VALUES ($1, 'listing_rejected', '❌ Ad Not Approved', $2, $3)`,
+      `INSERT INTO notifications (user_id, type, title, body, data) VALUES ($1, 'listing_rejected', 'Ad Not Approved', $2, $3)`,
       [listing.seller_id, `Your listing "${listing.title}" was not approved. Reason: ${reason.trim()}`, JSON.stringify({ listing_id: id, reason: reason.trim() })]
     ).catch(() => {});
     const io = req.app?.get("io");
-    if (io) io.to(`user:${listing.seller_id}`).emit("notification", { type: "listing_rejected", title: "❌ Ad Not Approved", body: `"${listing.title}" — ${reason.trim().slice(0, 80)}`, data: { listing_id: id } });
-    sendEmail(listing.email, listing.name, "❌ Your Weka Soko ad was not approved",
+    if (io) io.to(`user:${listing.seller_id}`).emit("notification", { type: "listing_rejected", title: "Ad Not Approved", body: `"${listing.title}" — ${reason.trim().slice(0, 80)}`, data: { listing_id: id } });
+    sendEmail(listing.email, listing.name, "Your Weka Soko ad was not approved",
       `Hi ${listing.name},\n\nYour listing "${listing.title}" was not approved.\n\nReason: ${reason.trim()}\n\nYou can edit and resubmit at:\n${FRONTEND}\n\nQuestions? Contact support@wekasoko.co.ke\n\n— Weka Soko`
     ).catch(e => console.error("[Moderation reject email]", e.message));
     res.json({ ok: true, message: "Listing rejected, seller notified" });
@@ -834,12 +834,12 @@ router.post("/moderation/:id/request-changes", async (req, res, next) => {
     const listing = check[0];
     await query(`UPDATE listings SET moderation_note=$1, updated_at=NOW() WHERE id=$2`, [note.trim(), id]);
     await query(
-      `INSERT INTO notifications (user_id, type, title, body, data) VALUES ($1, 'listing_changes_requested', '✏️ Changes Needed on Your Ad', $2, $3)`,
+      `INSERT INTO notifications (user_id, type, title, body, data) VALUES ($1, 'listing_changes_requested', 'Changes Needed on Your Ad', $2, $3)`,
       [listing.seller_id, `Your listing "${listing.title}" needs changes before it can go live. Note: ${note.trim()}`, JSON.stringify({ listing_id: id, note: note.trim() })]
     ).catch(() => {});
     const io = req.app?.get("io");
-    if (io) io.to(`user:${listing.seller_id}`).emit("notification", { type: "listing_changes_requested", title: "✏️ Changes Needed", body: `"${listing.title}" — ${note.trim().slice(0, 80)}`, data: { listing_id: id } });
-    sendEmail(listing.email, listing.name, "✏️ Changes needed on your Weka Soko ad",
+    if (io) io.to(`user:${listing.seller_id}`).emit("notification", { type: "listing_changes_requested", title: "Changes Needed", body: `"${listing.title}" — ${note.trim().slice(0, 80)}`, data: { listing_id: id } });
+    sendEmail(listing.email, listing.name, "Changes needed on your Weka Soko ad",
       `Hi ${listing.name},\n\nYour listing "${listing.title}" needs changes before going live.\n\nNote: ${note.trim()}\n\nEdit it at:\n${FRONTEND}\n\nOnce updated it will be re-reviewed automatically.\n\n— Weka Soko`
     ).catch(e => console.error("[Moderation changes email]", e.message));
     res.json({ ok: true, message: "Change request sent to seller" });

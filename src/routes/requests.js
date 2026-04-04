@@ -88,7 +88,7 @@ router.post("/", requireAuth, async (req, res, next) => {
         for (const m of matches) {
           await query(
             `INSERT INTO notifications (user_id,type,title,body,data)
-             VALUES ($1,'listing_match','🛒 A buyer wants what you have!',$2,$3)
+             VALUES ($1,'listing_match','A buyer wants what you have!',$2,$3)
              ON CONFLICT DO NOTHING`,
             [m.seller_id,
              `A buyer is looking for "${title.trim()}"${budget ? ` — budget KSh ${parseFloat(budget).toLocaleString()}` : ""}. You may have what they need!`,
@@ -97,7 +97,7 @@ router.post("/", requireAuth, async (req, res, next) => {
           if (io) {
             io.to(`user:${m.seller_id}`).emit("notification", {
               type: "listing_match",
-              title: "🛒 A buyer wants what you have!",
+              title: "A buyer wants what you have!",
               body: `Someone is looking for "${title.trim()}"${budget ? ` — budget KSh ${parseFloat(budget).toLocaleString()}` : ""}`,
               data: { request_id: request.id }
             });

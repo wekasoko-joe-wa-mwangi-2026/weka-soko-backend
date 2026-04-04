@@ -22,7 +22,7 @@ async function sendPaymentConfirmation({ userId, type, amount, receipt, listingT
 
     const typeLabel = type === "unlock" ? "Contact Unlock" : "Escrow Payment";
     const subject = `Payment Confirmed — ${typeLabel}`;
-    const body = `Hi ${user.name},\n\nYour payment has been confirmed! ✅\n\nDetails:\n• Type: ${typeLabel}\n• Listing: ${listingTitle}\n• Amount: KSh ${Number(amount).toLocaleString("en-KE")}\n• M-Pesa Receipt: ${receipt}\n• Till Number: 5673935\n• Date: ${new Date().toLocaleString("en-KE")}\n\n${type === "unlock" ? "The seller's contact details have been revealed. You can now view them on the listing." : "Funds are now held in escrow. You have 48 hours to confirm receipt of the item."}\n\nThank you for using Weka Soko!\n\nhttps://weka-soko.vercel.app`;
+    const body = `Hi ${user.name},\n\nYour payment has been confirmed! \n\nDetails:\n• Type: ${typeLabel}\n• Listing: ${listingTitle}\n• Amount: KSh ${Number(amount).toLocaleString("en-KE")}\n• M-Pesa Receipt: ${receipt}\n• Till Number: 5673935\n• Date: ${new Date().toLocaleString("en-KE")}\n\n${type === "unlock" ? "The seller's contact details have been revealed. You can now view them on the listing." : "Funds are now held in escrow. You have 48 hours to confirm receipt of the item."}\n\nThank you for using Weka Soko!\n\nhttps://weka-soko.vercel.app`;
 
     // 1. Platform inbox
     await query(
@@ -44,10 +44,10 @@ async function sendPaymentConfirmation({ userId, type, amount, receipt, listingT
 }
 
 async function sendWelcomeMessage({ userId, name, email, phone }) {
-  const body = `Welcome to Weka Soko, ${name}! 🎉\n\nYour account has been created successfully.\n\nYou can now:\n• Post items for free 📦\n• Browse thousands of listings 🔍\n• Chat safely with buyers and sellers 💬\n• Use our secure escrow service 🔐\n\nGet started: https://weka-soko.vercel.app\n\nIf you need help, contact us at support@wekasoko.co.ke\n\n— Weka Soko Team`;
+  const body = `Welcome to Weka Soko, ${name}! \n\nYour account has been created successfully.\n\nYou can now:\n• Post items for free \n• Browse thousands of listings \n• Chat safely with buyers and sellers \n• Use our secure escrow service \n\nGet started: https://weka-soko.vercel.app\n\nIf you need help, contact us at support@wekasoko.co.ke\n\n— Weka Soko Team`;
 
   await sendWhatsApp(phone, body);
-  await sendEmail(email, name, "Welcome to Weka Soko! 🎉", body);
+  await sendEmail(email, name, "Welcome to Weka Soko! ", body);
 }
 
 async function sendEscrowNotification({ buyerId, sellerId, listingTitle, listingId, amount, fee, type }) {
@@ -87,7 +87,7 @@ async function sendBuyerLockedIn({ sellerId, listingTitle, listingId }) {
     if (userResult.rows.length === 0) return;
     const user = userResult.rows[0];
 
-    const body = `Great news, ${user.name}! 🔥\n\nA buyer has locked in on your listing:\n"${listingTitle}"\n\nTo reveal their contact details, log in and pay the KSh 250 unlock fee.\n\nVisit: https://weka-soko.vercel.app\n\n— Weka Soko Team`;
+    const body = `Great news, ${user.name}! \n\nA buyer has locked in on your listing:\n"${listingTitle}"\n\nTo reveal their contact details, log in and pay the KSh 250 unlock fee.\n\nVisit: https://weka-soko.vercel.app\n\n— Weka Soko Team`;
 
     await query(
       `INSERT INTO inbox_messages (recipient_id, sender_type, subject, body, listing_id, created_at)
@@ -95,7 +95,7 @@ async function sendBuyerLockedIn({ sellerId, listingTitle, listingId }) {
       [sellerId, "Buyer Locked In!", body, listingId]
     );
     await sendWhatsApp(user.whatsapp_phone || user.phone, body);
-    await sendEmail(user.email, user.name, "🔥 A buyer locked in on your listing!", body);
+    await sendEmail(user.email, user.name, "A buyer locked in on your listing!", body);
   } catch (err) {
     console.error("[Notify] BuyerLockedIn error:", err.message);
   }

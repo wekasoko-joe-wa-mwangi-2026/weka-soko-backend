@@ -51,7 +51,7 @@ function startCronJobs() {
       for (const l of expired) {
         await query(
           `INSERT INTO notifications (user_id,type,title,body,data)
-           VALUES ($1,'listing_archived','📦 Ad archived',$2,$3)`,
+           VALUES ($1,'listing_archived','Ad archived',$2,$3)`,
           [l.seller_id, `"${l.title}" has been auto-archived after 75 days. Re-post it to make it active again.`, JSON.stringify({ listing_id: l.id })]
         ).catch(()=>{});
         console.log(`[Cron] Archived listing ${l.id}`);

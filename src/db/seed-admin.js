@@ -24,13 +24,13 @@ async function seedAdmin() {
         updated_at = NOW()
     `, [email, hash]);
 
-    console.log("✅ Admin account created/updated!");
+    console.log(" Admin account created/updated!");
     console.log("   Email:    " + email);
     console.log("   Password: " + password);
     console.log("");
-    console.log("⚠️  IMPORTANT: Change this password after first login!");
+    console.log("  IMPORTANT: Change this password after first login!");
   } catch (err) {
-    console.error("❌ Failed:", err.message);
+    console.error(" Failed:", err.message);
     process.exit(1);
   } finally {
     client.release();

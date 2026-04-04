@@ -416,10 +416,10 @@ async function runMigration() {
     `).catch(()=>{});
 
     await client.query("COMMIT");
-    console.log("✅ DB migration complete");
+    console.log(" DB migration complete");
   } catch (err) {
     await client.query("ROLLBACK");
-    console.error("❌ Migration failed:", err.message);
+    console.error(" Migration failed:", err.message);
     throw err;
   } finally {
     client.release();

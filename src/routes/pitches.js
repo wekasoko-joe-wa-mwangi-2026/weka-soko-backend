@@ -41,7 +41,7 @@ router.post("/", requireAuth, requireSeller, async (req, res, next) => {
     const sellerAnon = req.user.anon_tag || "A seller";
     await query(
       `INSERT INTO notifications (user_id,type,title,body,data)
-       VALUES ($1,'seller_pitch','📬 Someone has what you want!',$2,$3)`,
+       VALUES ($1,'seller_pitch','Someone has what you want!',$2,$3)`,
       [
         buyerRequest.user_id,
         `${sellerAnon} says they have "${buyerRequest.title}"${price ? ` for KSh ${parseFloat(price).toLocaleString()}` : ""}. Pay KSh 250 to reveal their contact.`,
@@ -54,7 +54,7 @@ router.post("/", requireAuth, requireSeller, async (req, res, next) => {
     if (io) {
       io.to(`user:${buyerRequest.user_id}`).emit("notification", {
         type: "seller_pitch",
-        title: "📬 Someone has what you want!",
+        title: "Someone has what you want!",
         body: `${sellerAnon} has a match for your request: "${buyerRequest.title}"`,
         data: { pitch_id: pitch[0].id, request_id }
       });
@@ -113,11 +113,11 @@ router.post("/:id/accept", requireAuth, async (req, res, next) => {
 
       // Notify seller
       await query(
-        `INSERT INTO notifications (user_id,type,title,body,data) VALUES ($1,'pitch_accepted','✅ Your pitch was accepted!',$2,$3)`,
+        `INSERT INTO notifications (user_id,type,title,body,data) VALUES ($1,'pitch_accepted','Your pitch was accepted!',$2,$3)`,
         [pitch.seller_id, `A buyer accepted your pitch on "${pitch.request_title}". They now have your contact details.`, JSON.stringify({ request_id: pitch.request_id, pitch_id: id })]
       );
       const io = req.app?.get("io");
-      if (io) io.to(`user:${pitch.seller_id}`).emit("notification", { type: "pitch_accepted", title: "✅ Your pitch was accepted!", data: { pitch_id: id } });
+      if (io) io.to(`user:${pitch.seller_id}`).emit("notification", { type: "pitch_accepted", title: "Your pitch was accepted!", data: { pitch_id: id } });
 
       return res.json({ ok: true, unlocked: true, seller_contact: { name: seller[0].name, phone: seller[0].phone, email: seller[0].email } });
     }
