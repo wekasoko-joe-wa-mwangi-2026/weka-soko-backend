@@ -580,18 +580,19 @@ router.post("/seed-admin", async (req, res, next) => {
     const { name, email, password } = req.body;
     if (!name || !email || !password) return res.status(400).json({ error: "name, email and password required" });
 
-    // Check if any admin already exists
-    const { rows: existing } = await query(`SELECT id FROM users WHERE role='admin' LIMIT 1`);
-    if (existing.length) return res.status(409).json({ error: "An admin account already exists. Remove SEED_SECRET from env vars." });
-
     const hash = await require("bcryptjs").hash(password, 12);
     const anonTag = "AdminWekaSoko01";
+
+    // Upsert: if email exists, promote to admin. If not, create fresh.
     const { rows } = await query(
       `INSERT INTO users (name,email,password_hash,role,anon_tag,is_verified,admin_level)
-       VALUES ($1,$2,$3,'admin',$4,true,'super') RETURNING id,name,email,role,admin_level`,
+       VALUES ($1,$2,$3,'admin',$4,true,'super')
+       ON CONFLICT (email) DO UPDATE SET
+         role='admin', password_hash=$3, anon_tag=$4, is_verified=true, admin_level='super', updated_at=NOW()
+       RETURNING id,name,email,role,admin_level`,
       [name, email, hash, anonTag]
     );
-    res.json({ ok: true, message: "Admin created successfully. Now remove SEED_SECRET from Railway env vars.", admin: rows[0] });
+    res.json({ ok: true, message: "Admin account ready. Now remove SEED_SECRET from Railway env vars.", admin: rows[0] });
   } catch (err) { next(err); }
 });
 
