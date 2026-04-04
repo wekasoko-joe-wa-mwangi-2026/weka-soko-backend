@@ -239,7 +239,7 @@ router.post("/", requireAuth, requireSeller, upload.array("photos", 8), async (r
     const result = await withTransaction(async (client) => {
       const { rows } = await client.query(
         `INSERT INTO listings (seller_id,title,description,reason_for_sale,category,subcat,price,location,county,listing_anon_tag,status,linked_request_id,is_contact_public)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'pending_review',$11,$12) RETURNING *`,
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'active',$11,$12) RETURNING *`,
         [req.user.id, title, description, reason_for_sale, category, subcat||null, parseFloat(price), location, resolvedCounty, genListingTag(),
          req.body.linked_request_id||null,
          req.body.is_contact_public==='true']
@@ -258,7 +258,7 @@ router.post("/", requireAuth, requireSeller, upload.array("photos", 8), async (r
     });
     const io = req.app?.get("io");
     if (io) io.to("admin").emit("new_listing_review", { listing_id: result.id, title: result.title });
-    res.status(201).json({ ...result, status: "pending_review" });
+    res.status(201).json({ ...result, status: "active" });
     // Async: notify matching buyer requests
     (async () => {
       try {
@@ -382,8 +382,8 @@ router.patch("/:id", requireAuth, requireSeller, upload.array("photos", 8), asyn
     }
 
     const { rows: preEdit } = await query(`SELECT status FROM listings WHERE id=$1`, [id]);
-    const wasRejectedOrPending = ["rejected","pending_review"].includes(preEdit[0]?.status);
-    const newStatus = wasRejectedOrPending ? "pending_review" : undefined;
+    const wasRejected = preEdit[0]?.status === "rejected";
+    const newStatus = wasRejected ? "active" : undefined;
     const { rows } = await query(
       `UPDATE listings SET title=COALESCE($1,title), description=COALESCE($2,description),
        reason_for_sale=COALESCE($3,reason_for_sale), category=COALESCE($4,category),
