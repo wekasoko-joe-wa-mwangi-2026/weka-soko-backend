@@ -912,4 +912,24 @@ router.post("/moderation/:id/request-changes", async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// ── POST /api/admin/listings/:id/seed-photos ─────────────────────────────────
+// Dev/testing only: insert photo URLs directly, bypassing Cloudinary upload.
+router.post("/listings/:id/seed-photos", async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { urls } = req.body; // array of URL strings
+    if (!Array.isArray(urls) || !urls.length) return res.status(400).json({ error: "urls array required" });
+    const { rows: ls } = await query(`SELECT id FROM listings WHERE id=$1`, [id]);
+    if (!ls.length) return res.status(404).json({ error: "Listing not found" });
+    await query(`DELETE FROM listing_photos WHERE listing_id=$1`, [id]);
+    for (let i = 0; i < urls.length; i++) {
+      await query(
+        `INSERT INTO listing_photos (listing_id, url, public_id, sort_order) VALUES ($1, $2, $3, $4)`,
+        [id, urls[i], `seed/${id}/${i}`, i]
+      );
+    }
+    res.json({ ok: true, inserted: urls.length });
+  } catch (err) { next(err); }
+});
+
 module.exports = router;
