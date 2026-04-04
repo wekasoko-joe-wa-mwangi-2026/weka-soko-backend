@@ -74,7 +74,7 @@ async function initiateSTKPush({ phone, amount, accountRef, description, payment
     BusinessShortCode: SHORTCODE,
     Password: password,
     Timestamp: timestamp,
-    TransactionType: isLive ? "CustomerBuyGoodsOnline" : "CustomerPayBillOnline",
+    TransactionType: "CustomerBuyGoodsOnline",
     Amount: Math.ceil(amount),              // M-Pesa only accepts integers
     PartyA: formattedPhone,
     PartyB: SHORTCODE,
