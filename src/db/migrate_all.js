@@ -100,6 +100,7 @@ async function runMigration() {
     await addCol("listings","moderation_reviewed_at","TIMESTAMPTZ");
     await addCol("listings","moderation_reviewed_by","UUID REFERENCES users(id) ON DELETE SET NULL");
     await addCol("listings","is_contact_public","BOOLEAN DEFAULT FALSE");
+    await addCol("listings","subcat","VARCHAR(80)");
     await addCol("listings","payment_expires_at","TIMESTAMPTZ");
     await addCol("listings","sold_at","TIMESTAMPTZ");
     await addCol("listings","sold_channel","VARCHAR(30)");

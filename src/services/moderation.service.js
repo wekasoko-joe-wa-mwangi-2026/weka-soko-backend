@@ -80,17 +80,24 @@ const RAW_PATTERNS = [
     label: "Website link",
     test: (t) => /https?:\/\/[^\s]+|www\.[a-z0-9\-]+\.[a-z]{2,}/i.test(t),
   },
-  // WhatsApp / Telegram / Signal
+  // @username handle (e.g. @johndoe, @john.doe_123)
+  {
+    id: "at_handle",
+    label: "Social media handle",
+    test: (t) => /@[a-z0-9_.]{3,}/i.test(t),
+  },
+  // WhatsApp / Telegram / Signal / Snap
   {
     id: "messaging_app",
     label: "Messaging app reference",
-    test: (t) => /\b(whatsapp|whats.?app|wa\.me|telegram|t\.me|signal\.me|signal app|viber|imo|snapchat)\b/i.test(t),
+    test: (t) => /\b(whatsapp|whats.?app|wa\.me|telegram|t\.me|signal\.me|signal app|viber|imo|snapchat|snap\b)\b/i.test(t),
   },
-  // Social media
+  // Social media + "add me on / find me on / follow me on"
   {
     id: "social",
     label: "Social media handle",
-    test: (t) => /\b(instagram|insta\b|ig\b|facebook|fb\.com|twitter|tiktok|dm me|slide into|my dm|in my bio|linktree)\b/i.test(t),
+    test: (t) => /\b(instagram|insta\b|ig\b|facebook|fb\.com|twitter|x\.com|tiktok|dm me|slide into|my dm|in my bio|linktree)\b/i.test(t) ||
+      /\b(add\s+me\s+(on|at)|find\s+me\s+(on|at)|follow\s+me\s+on|search\s+me\s+on|my\s+(ig|snap|insta|tiktok|twitter|handle|username))\b/i.test(t),
   },
   // "Call me / text me / contact me"
   {
@@ -98,11 +105,11 @@ const RAW_PATTERNS = [
     label: "Contact info hint",
     test: (t) => /\b(call\s+me|text\s+me|reach\s+me|contact\s+me|msg\s+me|ping\s+me|hmu|hit\s+me\s+up|reach\s+out\s+to\s+me|nipa\s+(call|ring)|nipigie|nipigie\s+simu)\b/i.test(t),
   },
-  // "My number is / my phone is"
+  // "My number is / my phone is / my username is"
   {
     id: "my_number",
     label: "Contact info hint",
-    test: (t) => /\b(my\s+(number|namba|num|contact|phone|cell|mobile|email|gmail|nambari|simu))\b/i.test(t),
+    test: (t) => /\b(my\s+(number|namba|num|contact|phone|cell|mobile|email|gmail|nambari|simu|username|handle|user\s*name))\b/i.test(t),
   },
   // Unicode lookalikes for @
   {
