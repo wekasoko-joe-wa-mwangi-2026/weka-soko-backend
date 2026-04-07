@@ -1008,9 +1008,9 @@ router.post("/seed-test-data", requireAuth, requireAdmin, async (req, res, next)
       const photosArr = PHOTOS[l.category] || PHOTOS.Electronics;
       const photosJson = JSON.stringify(photosArr.map((url, idx) => ({ url, public_id: `seed_${i}_${idx}` })));
       const r = await query(
-        `INSERT INTO listings (seller_id,title,description,price,category,subcat,location,county,photos,status,is_approved,expires_at,view_count,interest_count)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,'active',true,$10,$11,$12)
-         ON CONFLICT DO NOTHING RETURNING id`,
+        `INSERT INTO listings (seller_id,title,description,price,category,subcat,location,county,photos,status,expires_at,view_count,interest_count)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,'active',$10,$11,$12)
+         RETURNING id`,
         [sellerId, l.title, l.description, l.price, l.category, l.subcat||null, l.location, l.county,
          photosJson, expiresAt, Math.floor(Math.random()*120)+5, Math.floor(Math.random()*8)]
       );
@@ -1022,7 +1022,7 @@ router.post("/seed-test-data", requireAuth, requireAdmin, async (req, res, next)
       const res2 = await query(
         `INSERT INTO buyer_requests (user_id,title,description,budget,category,county,status)
          VALUES ($1,$2,$3,$4,$5,$6,'active')
-         ON CONFLICT DO NOTHING RETURNING id`,
+         RETURNING id`,
         [buyerId, r.title, r.description, r.budget, r.category, r.county]
       );
       if (res2.rows.length) requestsCreated++;
