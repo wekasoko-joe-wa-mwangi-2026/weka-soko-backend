@@ -1006,15 +1006,23 @@ router.post("/seed-test-data", requireAuth, requireAdmin, async (req, res, next)
     for (let i = 0; i < LISTINGS.length; i++) {
       const l = LISTINGS[i];
       const photosArr = PHOTOS[l.category] || PHOTOS.Electronics;
-      const photosJson = JSON.stringify(photosArr.map((url, idx) => ({ url, public_id: `seed_${i}_${idx}` })));
       const r = await query(
-        `INSERT INTO listings (seller_id,title,description,price,category,subcat,location,county,photos,status,expires_at,view_count,interest_count)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,'active',$10,$11,$12)
+        `INSERT INTO listings (seller_id,title,description,price,category,subcat,location,county,status,expires_at,view_count,interest_count)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'active',$9,$10,$11)
          RETURNING id`,
         [sellerId, l.title, l.description, l.price, l.category, l.subcat||null, l.location, l.county,
-         photosJson, expiresAt, Math.floor(Math.random()*120)+5, Math.floor(Math.random()*8)]
+         expiresAt, Math.floor(Math.random()*120)+5, Math.floor(Math.random()*8)]
       );
-      if (r.rows.length) listingsCreated++;
+      if (r.rows.length) {
+        const listingId = r.rows[0].id;
+        for (let j = 0; j < photosArr.length; j++) {
+          await query(
+            `INSERT INTO listing_photos (listing_id, url, public_id, sort_order) VALUES ($1,$2,$3,$4)`,
+            [listingId, photosArr[j], `seed_${i}_${j}`, j]
+          );
+        }
+        listingsCreated++;
+      }
     }
 
     for (let i = 0; i < REQUESTS.length; i++) {
