@@ -215,7 +215,7 @@ router.get("/admin/sold", requireAuth, async (req, res, next) => {
 });
 
 // ── POST /api/listings ────────────────────────────────────────────────────────
-router.post("/", requireAuth, requireSeller, upload.array("photos", 8), async (req, res, next) => {
+router.post("/", requireAuth, upload.array("photos", 8), async (req, res, next) => {
   try {
     const { title, description, reason_for_sale, category, subcat, price, location, county } = req.body;
     if (!title || !description || !price) return res.status(400).json({ error: "title, description, and price are required" });
