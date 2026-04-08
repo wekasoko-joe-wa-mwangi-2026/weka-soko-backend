@@ -321,6 +321,7 @@ async function runMigration() {
     await client.query(`ALTER TABLE buyer_requests ADD COLUMN IF NOT EXISTS keywords TEXT`).catch(()=>{});
     await client.query(`ALTER TABLE buyer_requests ADD COLUMN IF NOT EXISTS min_price NUMERIC(12,2)`).catch(()=>{});
     await client.query(`ALTER TABLE buyer_requests ADD COLUMN IF NOT EXISTS max_price NUMERIC(12,2)`).catch(()=>{});
+    await client.query(`ALTER TABLE buyer_requests ADD COLUMN IF NOT EXISTS photos JSONB DEFAULT '[]'`).catch(()=>{});
 
     // Now safe to add FK column referencing buyer_requests
     await addCol("listings","linked_request_id","UUID REFERENCES buyer_requests(id) ON DELETE SET NULL");

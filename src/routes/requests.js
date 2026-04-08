@@ -1,10 +1,13 @@
 // src/routes/requests.js — What Buyers Want
 const express = require("express");
+const multer = require("multer");
 const { query } = require("../db/pool");
 const { requireAuth, optionalAuth } = require("../middleware/auth");
 const { detectContactInfo } = require("../services/moderation.service");
+const { uploadBuffer } = require("../services/cloudinary.service");
 
 const router = express.Router();
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024, files: 4 } });
 
 // ── GET /api/requests ──────────────────────────────────────────────────────
 // List all active buyer requests (paginated)
@@ -147,6 +150,44 @@ router.get("/mine", requireAuth, async (req, res, next) => {
       [req.user.id]
     );
     res.json(rows);
+  } catch (err) { next(err); }
+});
+
+// ── GET /api/requests/:id ──────────────────────────────────────────────────
+// Get a single buyer request by ID
+router.get("/:id", optionalAuth, async (req, res, next) => {
+  try {
+    const { rows } = await query(
+      `SELECT r.*, u.anon_tag AS requester_anon,
+        (SELECT COUNT(*) FROM listings l
+         WHERE l.status = 'active' AND l.expires_at > NOW()
+         AND (l.title ILIKE '%' || r.title || '%' OR l.description ILIKE '%' || r.title || '%')) AS matching_listings
+       FROM buyer_requests r
+       JOIN users u ON u.id = r.user_id
+       WHERE r.id = $1 AND r.status != 'deleted'`,
+      [req.params.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: "Request not found" });
+    res.json(rows[0]);
+  } catch (err) { next(err); }
+});
+
+// ── POST /api/requests/:id/photos ──────────────────────────────────────────
+// Upload up to 4 photos for a buyer request (owner only)
+router.post("/:id/photos", requireAuth, upload.array("photos", 4), async (req, res, next) => {
+  try {
+    const { rows } = await query(`SELECT * FROM buyer_requests WHERE id = $1 AND status != 'deleted'`, [req.params.id]);
+    if (!rows.length) return res.status(404).json({ error: "Request not found" });
+    if (rows[0].user_id !== req.user.id) return res.status(403).json({ error: "Not your request" });
+    if (!req.files || !req.files.length) return res.status(400).json({ error: "No files uploaded" });
+
+    const existing = Array.isArray(rows[0].photos) ? rows[0].photos : [];
+    const uploads = await Promise.all(
+      req.files.map(f => uploadBuffer(f.buffer, { folder: `weka-soko/requests/${req.params.id}` }))
+    );
+    const updated = [...existing, ...uploads.map(u => u.url)].slice(0, 4);
+    await query(`UPDATE buyer_requests SET photos = $1 WHERE id = $2`, [JSON.stringify(updated), req.params.id]);
+    res.json({ photos: updated });
   } catch (err) { next(err); }
 });
 
