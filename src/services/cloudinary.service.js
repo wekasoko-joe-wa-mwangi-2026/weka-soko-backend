@@ -28,10 +28,7 @@ function uploadBuffer(buffer, options = {}) {
       {
         folder: options.folder || "weka-soko/listings",
         resource_type: "image",
-        // No transformation array — skip server-side resize during upload.
-        // The image is served optimised via URL transforms at display time.
-        format: "auto",       // auto-selects WebP/AVIF per browser
-        quality: "auto",      // automatic quality optimisation on serve
+        quality: "auto",
         ...options,
       },
       (error, result) => {
