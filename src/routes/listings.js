@@ -228,12 +228,17 @@ router.post("/", requireAuth, upload.array("photos", 8), async (req, res, next) 
     const tempId = require("crypto").randomUUID(); // temp folder until we have the real listing id
     let preUploads = [];
     if (req.files?.length) {
-      preUploads = await Promise.all(
-        req.files.map((f, i) =>
-          uploadBuffer(f.buffer, { folder: `weka-soko/listings/tmp-${tempId}` })
-            .then(r => ({ ...r, sort_order: i }))
-        )
-      );
+      try {
+        preUploads = await Promise.all(
+          req.files.map((f, i) =>
+            uploadBuffer(f.buffer, { folder: `weka-soko/listings/tmp-${tempId}` })
+              .then(r => ({ ...r, sort_order: i }))
+          )
+        );
+      } catch (uploadErr) {
+        console.error("[Cloudinary] Upload failed:", uploadErr.message);
+        return res.status(502).json({ error: "Photo upload failed. Please try without photos or use smaller images." });
+      }
     }
 
     const result = await withTransaction(async (client) => {
@@ -359,7 +364,7 @@ router.get("/:id", optionalAuth, async (req, res, next) => {
 
 
 // ── PATCH /api/listings/:id ───────────────────────────────────────────────────
-router.patch("/:id", requireAuth, requireSeller, upload.array("photos", 8), async (req, res, next) => {
+router.patch("/:id", requireAuth, upload.array("photos", 8), async (req, res, next) => {
   try {
     const { id } = req.params;
     const { title, description, reason_for_sale, category, subcat, price, location, county } = req.body;
@@ -420,7 +425,7 @@ router.delete("/:id", requireAuth, async (req, res, next) => {
 
 // ── POST /api/listings/:id/mark-sold ─────────────────────────────────────────
 // Seller marks their own listing as sold, recording whether it sold on platform or outside
-router.post("/:id/mark-sold", requireAuth, requireSeller, async (req, res, next) => {
+router.post("/:id/mark-sold", requireAuth, async (req, res, next) => {
   try {
     const { channel } = req.body; // "platform" or "outside"
     if (!["platform", "outside"].includes(channel)) {
@@ -522,7 +527,7 @@ router.post("/:id/report", requireAuth, async (req, res, next) => {
 });
 
 // ── DELETE /api/listings/:id/photos/:photoId ──────────────────────────────────
-router.delete("/:id/photos/:photoId", requireAuth, requireSeller, async (req, res, next) => {
+router.delete("/:id/photos/:photoId", requireAuth, async (req, res, next) => {
   try {
     const { rows: ls } = await query(`SELECT seller_id FROM listings WHERE id=$1`, [req.params.id]);
     if (!ls.length) return res.status(404).json({ error: "Listing not found" });
@@ -536,7 +541,7 @@ router.delete("/:id/photos/:photoId", requireAuth, requireSeller, async (req, re
 });
 
 // ── POST /api/listings/:id/photos ─────────────────────────────────────────────
-router.post("/:id/photos", requireAuth, requireSeller, upload.array("photos", 8), async (req, res, next) => {
+router.post("/:id/photos", requireAuth, upload.array("photos", 8), async (req, res, next) => {
   try {
     const { rows: ls } = await query(`SELECT seller_id FROM listings WHERE id=$1`, [req.params.id]);
     if (!ls.length) return res.status(404).json({ error: "Listing not found" });
@@ -572,6 +577,14 @@ router.post("/:id/seed-photos", requireAuth, requireSeller, async (req, res, nex
     }
     res.json({ ok: true, inserted: urls.length });
   } catch (err) { next(err); }
+});
+
+// ── Multer error handler (file too large, wrong type, etc.) ──────────────────
+router.use((err, req, res, next) => {
+  if (err.code === "LIMIT_FILE_SIZE") return res.status(400).json({ error: "Photo too large. Max 10MB per photo." });
+  if (err.code === "LIMIT_FILE_COUNT") return res.status(400).json({ error: "Too many photos. Max 8 allowed." });
+  if (err.code === "LIMIT_UNEXPECTED_FILE") return res.status(400).json({ error: "Unexpected file field." });
+  next(err);
 });
 
 module.exports = router;

@@ -446,14 +446,10 @@ app.get("/health", async (req, res) => {
 
 // ── Global Error Handler ───────────────────────────────────────────────────────
 app.use((err, req, res, next) => {
-  console.error("Unhandled error:", err);
   const status = err.status || err.statusCode || 500;
-  const isProd = process.env.NODE_ENV === "production";
-  // In production, hide stack traces but keep meaningful messages for non-500 errors
-  res.status(status).json({
-    error: (isProd && status === 500) ? "Internal server error" : err.message,
-    ...(!isProd && { stack: err.stack }),
-  });
+  console.error(`[${status}] ${req.method} ${req.path} —`, err.message);
+  if (status === 500) console.error(err.stack);
+  res.status(status).json({ error: err.message || "Something went wrong" });
 });
 
 // ── 404 ───────────────────────────────────────────────────────────────────────
