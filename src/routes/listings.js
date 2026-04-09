@@ -53,18 +53,16 @@ router.get("/", optionalAuth, async (req, res, next) => {
     const sql = `
       SELECT l.id, l.title, l.description, l.reason_for_sale, l.category, l.subcat, l.price, l.location, l.county, l.status,
              l.seller_id, l.is_unlocked, l.is_contact_public, l.linked_request_id, l.view_count, l.interest_count,
-             l.created_at, l.expires_at, l.locked_buyer_id, l.store_id,
+             l.created_at, l.expires_at, l.locked_buyer_id,
              l.listing_anon_tag AS seller_anon,
              CASE WHEN l.is_unlocked THEN u.name ELSE NULL END AS seller_name,
              CASE WHEN l.is_unlocked THEN u.phone ELSE NULL END AS seller_phone,
              CASE WHEN l.is_unlocked THEN u.email ELSE NULL END AS seller_email,
              u.response_rate, u.avg_response_hours,
              u.avg_rating AS seller_avg_rating, u.review_count AS seller_review_count,
-             s.name AS store_name, s.slug AS store_slug, s.is_verified AS store_verified, s.logo_url AS store_logo,
              COALESCE((SELECT json_agg(p.url ORDER BY p.sort_order) FROM listing_photos p WHERE p.listing_id=l.id),'[]'::json) AS photos
              ${searchClause}
       FROM listings l JOIN users u ON u.id=l.seller_id
-      LEFT JOIN stores s ON s.id=l.store_id
       ${where}
       ORDER BY ${orderBy}
       LIMIT $${params.length-1} OFFSET $${params.length}`;
@@ -244,18 +242,12 @@ router.post("/", requireAuth, upload.array("photos", 8), async (req, res, next) 
     }
 
     const result = await withTransaction(async (client) => {
-      // Look up if seller has an active store — auto-link the listing
-      const { rows: storeRows } = await client.query(
-        `SELECT id FROM stores WHERE owner_id=$1 AND status='active'`, [req.user.id]
-      );
-      const storeId = storeRows[0]?.id || null;
       const { rows } = await client.query(
-        `INSERT INTO listings (seller_id,title,description,reason_for_sale,category,subcat,price,location,county,listing_anon_tag,status,linked_request_id,is_contact_public,store_id)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'pending_review',$11,$12,$13) RETURNING *`,
+        `INSERT INTO listings (seller_id,title,description,reason_for_sale,category,subcat,price,location,county,listing_anon_tag,status,linked_request_id,is_contact_public)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'pending_review',$11,$12) RETURNING *`,
         [req.user.id, title, description, reason_for_sale, category, subcat||null, parseFloat(price), location, resolvedCounty, genListingTag(),
          req.body.linked_request_id||null,
-         req.body.is_contact_public==='true',
-         storeId]
+         req.body.is_contact_public==='true']
       );
       const listing = rows[0];
       if (preUploads.length) {
@@ -342,14 +334,13 @@ router.get("/:id", optionalAuth, async (req, res, next) => {
       `SELECT l.id, l.title, l.description, l.reason_for_sale, l.category, l.subcat,
               l.price, l.location, l.county, l.status,
               l.seller_id, l.is_unlocked, l.is_contact_public, l.linked_request_id,
-              l.view_count, l.interest_count, l.created_at, l.expires_at, l.locked_buyer_id, l.store_id,
+              l.view_count, l.interest_count, l.created_at, l.expires_at, l.locked_buyer_id,
               l.listing_anon_tag AS seller_anon,
               l.moderation_note,
               CASE WHEN l.is_unlocked THEN u.name ELSE NULL END AS seller_name,
               CASE WHEN l.is_unlocked THEN u.phone ELSE NULL END AS seller_phone,
               CASE WHEN l.is_unlocked THEN u.email ELSE NULL END AS seller_email,
               u.anon_tag AS seller_user_anon,
-              s.name AS store_name, s.slug AS store_slug, s.is_verified AS store_verified, s.logo_url AS store_logo,
               COALESCE(
                 (SELECT json_agg(p.url ORDER BY p.sort_order)
                  FROM listing_photos p WHERE p.listing_id=l.id), '[]'
@@ -358,10 +349,9 @@ router.get("/:id", optionalAuth, async (req, res, next) => {
               COUNT(rv.id) AS seller_review_count
        FROM listings l
        JOIN users u ON u.id=l.seller_id
-       LEFT JOIN stores s ON s.id=l.store_id
        LEFT JOIN reviews rv ON rv.seller_id=l.seller_id
        WHERE l.id=$1
-       GROUP BY l.id,u.name,u.phone,u.email,u.anon_tag,s.name,s.slug,s.is_verified,s.logo_url`,
+       GROUP BY l.id,u.name,u.phone,u.email,u.anon_tag`,
       [req.params.id]
     );
     if (!rows.length) return res.status(404).json({ error: "Listing not found" });

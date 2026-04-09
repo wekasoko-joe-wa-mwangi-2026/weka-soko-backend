@@ -366,51 +366,6 @@ async function runMigration() {
       updated_at TIMESTAMPTZ DEFAULT NOW()
     );`);
 
-    // ── STORES (Malls) ────────────────────────────────────────────────────────
-    await client.query(`CREATE TABLE IF NOT EXISTS stores (
-      id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-      owner_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      slug VARCHAR(80) UNIQUE NOT NULL,
-      name VARCHAR(120) NOT NULL,
-      tagline VARCHAR(200),
-      description TEXT,
-      category VARCHAR(80),
-      logo_url TEXT,
-      banner_url TEXT,
-      location VARCHAR(255),
-      county VARCHAR(60),
-      phone VARCHAR(20),
-      whatsapp VARCHAR(20),
-      website TEXT,
-      instagram VARCHAR(80),
-      facebook VARCHAR(80),
-      status VARCHAR(20) DEFAULT 'pending',
-      plan VARCHAR(20) DEFAULT 'starter',
-      is_verified BOOLEAN DEFAULT FALSE,
-      verified_at TIMESTAMPTZ,
-      verified_by UUID REFERENCES users(id) ON DELETE SET NULL,
-      rejection_reason TEXT,
-      admin_note TEXT,
-      view_count INT DEFAULT 0,
-      listing_count INT DEFAULT 0,
-      created_at TIMESTAMPTZ DEFAULT NOW(),
-      updated_at TIMESTAMPTZ DEFAULT NOW()
-    );`);
-    await addCol("stores","tagline","VARCHAR(200)");
-    await addCol("stores","facebook","VARCHAR(80)");
-    await addCol("stores","admin_note","TEXT");
-    await addCol("stores","plan","VARCHAR(20) DEFAULT 'starter'");
-    await client.query(`CREATE INDEX IF NOT EXISTS idx_stores_owner ON stores(owner_id)`).catch(()=>{});
-    await client.query(`CREATE INDEX IF NOT EXISTS idx_stores_status ON stores(status)`).catch(()=>{});
-    await client.query(`CREATE INDEX IF NOT EXISTS idx_stores_slug ON stores(slug)`).catch(()=>{});
-
-    // Add store_id to listings
-    await addCol("listings","store_id","UUID REFERENCES stores(id) ON DELETE SET NULL");
-    await client.query(`CREATE INDEX IF NOT EXISTS idx_listings_store ON listings(store_id) WHERE store_id IS NOT NULL`).catch(()=>{});
-
-    // Add store_id to users (quick lookup: does this user own a store?)
-    await addCol("users","store_id","UUID REFERENCES stores(id) ON DELETE SET NULL");
-
     // ── SAVED LISTINGS ────────────────────────────────────────────────────────
     await client.query(`CREATE TABLE IF NOT EXISTS saved_listings (
       id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
