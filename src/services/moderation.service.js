@@ -66,11 +66,12 @@ const RAW_PATTERNS = [
     label: "International phone number",
     test: (t) => /(\+|00)?\s*2\s*5\s*4\s*[\s\-\.]?[17]\d[\s\.\-\•\*]*\d{7}/.test(t),
   },
-  // Any 10+ consecutive digits (disguised numbers)
+  // 10+ consecutive digits with SHORT separators only (max 2 chars between digits)
+  // This prevents false positives on technical specs like "2.0 Litre ... 205hp ... 202 Nm ... 6 speed"
   {
     id: "digit_seq",
     label: "Phone number (digit sequence)",
-    test: (t) => /\d[\s\.\-\•\/\\,]*\d[\s\.\-\•\/\\,]*\d[\s\.\-\•\/\\,]*\d[\s\.\-\•\/\\,]*\d[\s\.\-\•\/\\,]*\d[\s\.\-\•\/\\,]*\d[\s\.\-\•\/\\,]*\d[\s\.\-\•\/\\,]*\d[\s\.\-\•\/\\,]*\d/.test(t),
+    test: (t) => /\d[\.\-\•\/\\,]{0,2}\d[\.\-\•\/\\,]{0,2}\d[\.\-\•\/\\,]{0,2}\d[\.\-\•\/\\,]{0,2}\d[\.\-\•\/\\,]{0,2}\d[\.\-\•\/\\,]{0,2}\d[\.\-\•\/\\,]{0,2}\d[\.\-\•\/\\,]{0,2}\d[\.\-\•\/\\,]{0,2}\d/.test(t),
   },
   // Email
   { id: "email", label: "Email address", test: containsEmail },
