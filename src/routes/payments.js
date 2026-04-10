@@ -162,6 +162,30 @@ router.post("/escrow/:id/dispute", requireAuth, async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// ── POST /api/payments/retry ──────────────────────────────────────────────────
+// Risk 2: User can retry a failed STK push without losing their payment record
+router.post("/retry", requireAuth, async (req, res, next) => {
+  try {
+    const { payment_id, phone } = req.body;
+    if (!payment_id || !phone) return res.status(400).json({ error: "payment_id and phone required" });
+    const { rows } = await query(
+      `SELECT * FROM payments WHERE id=$1 AND payer_id=$2 AND status='pending'`,
+      [payment_id, req.user.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: "Pending payment not found" });
+    const payment = rows[0];
+    const result = await initiateSTKPush({
+      phone,
+      amount: payment.amount_kes,
+      accountRef: `WS-RETRY-${payment.listing_id?.slice(0,8).toUpperCase() || payment_id.slice(0,8).toUpperCase()}`,
+      description: `Weka Soko payment retry`,
+      paymentId: payment.id,
+    });
+    await query(`UPDATE payments SET mpesa_phone=$1, updated_at=NOW() WHERE id=$2`, [phone, payment.id]);
+    res.json({ message: "STK Push resent. Enter your M-Pesa PIN.", checkoutRequestId: result.checkoutRequestId });
+  } catch (err) { next(err); }
+});
+
 // ── POST /api/payments/verify-manual ───────────────────────────────────────────────────────────
 router.post("/verify-manual", requireAuth, async (req, res, next) => {
   try {

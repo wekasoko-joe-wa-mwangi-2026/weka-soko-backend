@@ -1050,4 +1050,90 @@ router.post("/seed-test-data", requireAuth, requireAdmin, async (req, res, next)
   } catch (err) { next(err); }
 });
 
+// ── RISK 10: ADMIN AUDIT LOG ──────────────────────────────────────────────────
+const { auditLog } = require("../services/audit.service");
+
+router.get("/audit-log", requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    const limit = Math.min(parseInt(req.query.limit) || 50, 200);
+    const offset = parseInt(req.query.offset) || 0;
+    const { rows } = await query(
+      `SELECT * FROM admin_audit_log ORDER BY created_at DESC LIMIT $1 OFFSET $2`,
+      [limit, offset]
+    );
+    const { rows: countRows } = await query(`SELECT COUNT(*) FROM admin_audit_log`);
+    res.json({ log: rows, total: parseInt(countRows[0].count) });
+  } catch (err) { next(err); }
+});
+
+// ── RISK 5: MAINTENANCE MODE ──────────────────────────────────────────────────
+const { getMaintenanceState, invalidateMaintenanceCache } = require("../middleware/maintenance");
+
+router.get("/maintenance", requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    const state = await getMaintenanceState();
+    res.json(state);
+  } catch (err) { next(err); }
+});
+
+router.post("/maintenance", requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    const { enabled, message } = req.body;
+    if (typeof enabled !== "boolean") return res.status(400).json({ error: "enabled (boolean) required" });
+    await query(`UPDATE platform_config SET value=$1, updated_at=NOW(), updated_by=$2 WHERE key='maintenance_mode'`, [String(enabled), req.user.id]);
+    if (message) await query(`UPDATE platform_config SET value=$1, updated_at=NOW(), updated_by=$2 WHERE key='maintenance_message'`, [message, req.user.id]);
+    invalidateMaintenanceCache();
+    await auditLog({ adminId: req.user.id, adminEmail: req.user.email, action: enabled ? "maintenance_on" : "maintenance_off", details: { message }, ip: req.ip });
+    res.json({ ok: true, enabled, message: message || undefined });
+  } catch (err) { next(err); }
+});
+
+// ── RISK 2: ADMIN MANUAL PAYMENT CONFIRMATION ─────────────────────────────────
+router.post("/payments/:id/manual-confirm", requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    const { mpesa_receipt } = req.body;
+    if (!mpesa_receipt) return res.status(400).json({ error: "mpesa_receipt required" });
+    const { rows } = await query(`SELECT * FROM payments WHERE id=$1`, [req.params.id]);
+    if (!rows.length) return res.status(404).json({ error: "Payment not found" });
+    const payment = rows[0];
+    if (payment.status === "confirmed") return res.status(400).json({ error: "Already confirmed" });
+    await query(`UPDATE payments SET status='confirmed', mpesa_receipt=$1, confirmed_at=NOW() WHERE id=$2`, [mpesa_receipt.trim().toUpperCase(), payment.id]);
+    if (payment.type === "unlock") {
+      await query(`UPDATE listings SET is_contact_public=TRUE, unlocked_at=NOW() WHERE id=$1`, [payment.listing_id]);
+    }
+    await auditLog({ adminId: req.user.id, adminEmail: req.user.email, action: "manual_payment_confirm", targetType: "payment", targetId: payment.id, details: { mpesa_receipt, type: payment.type }, ip: req.ip });
+    res.json({ ok: true, message: `Payment confirmed with receipt ${mpesa_receipt.trim().toUpperCase()}` });
+  } catch (err) { next(err); }
+});
+
+router.get("/payments/pending", requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    const { rows } = await query(
+      `SELECT p.*, u.name AS payer_name, u.email AS payer_email, l.title AS listing_title
+       FROM payments p JOIN users u ON u.id=p.payer_id LEFT JOIN listings l ON l.id=p.listing_id
+       WHERE p.status='pending' ORDER BY p.created_at DESC LIMIT 100`
+    );
+    res.json({ payments: rows });
+  } catch (err) { next(err); }
+});
+
+// ── RISK 6: EMERGENCY BROADCAST ───────────────────────────────────────────────
+router.post("/broadcast", requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    const { title, body, type = "announcement" } = req.body;
+    if (!title || !body) return res.status(400).json({ error: "title and body required" });
+    await query(
+      `INSERT INTO notifications (user_id, type, title, body, data)
+       SELECT id, $1, $2, $3, $4 FROM users WHERE is_suspended=FALSE AND account_status='active'`,
+      [type, title, body, JSON.stringify({ broadcast: true })]
+    );
+    const { rows: countRows } = await query(`SELECT COUNT(*) FROM users WHERE is_suspended=FALSE AND account_status='active'`);
+    const count = parseInt(countRows[0].count);
+    const io = req.app.get("io");
+    if (io) io.emit("notification", { type, title, body, data: { broadcast: true } });
+    await auditLog({ adminId: req.user.id, adminEmail: req.user.email, action: "emergency_broadcast", details: { title, body, recipients: count }, ip: req.ip });
+    res.json({ ok: true, sent_to: count });
+  } catch (err) { next(err); }
+});
+
 module.exports = router;

@@ -210,6 +210,8 @@ async function runMigration() {
       created_at TIMESTAMPTZ DEFAULT NOW()
     );`);
 
+    await addCol("disputes","admin_alerted_at","TIMESTAMPTZ");
+
     // ── CHAT MESSAGES ─────────────────────────────────────────────────────────
     await client.query(`CREATE TABLE IF NOT EXISTS chat_messages (
       id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -430,6 +432,37 @@ async function runMigration() {
       UPDATE listings SET county = TRIM(SPLIT_PART(location, ',', -1))
       WHERE county IS NULL AND location IS NOT NULL AND location LIKE '%,%'
     `).catch(()=>{});
+
+    // ── ADMIN AUDIT LOG ───────────────────────────────────────────────────────
+    // Risk 10: tracks every admin action for accountability + breach detection
+    await client.query(`CREATE TABLE IF NOT EXISTS admin_audit_log (
+      id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+      admin_id UUID REFERENCES users(id) ON DELETE SET NULL,
+      admin_email VARCHAR(255),
+      action VARCHAR(100) NOT NULL,
+      target_type VARCHAR(50),
+      target_id VARCHAR(255),
+      details JSONB DEFAULT '{}',
+      ip VARCHAR(64),
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_audit_admin ON admin_audit_log(admin_id)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_audit_created ON admin_audit_log(created_at DESC)`);
+
+    // ── MAINTENANCE MODE ──────────────────────────────────────────────────────
+    // Risk 5: single-row config table used to flip maintenance mode without redeployment
+    await client.query(`CREATE TABLE IF NOT EXISTS platform_config (
+      key VARCHAR(100) PRIMARY KEY,
+      value TEXT,
+      updated_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_by UUID REFERENCES users(id) ON DELETE SET NULL
+    )`);
+    await client.query(`INSERT INTO platform_config (key,value) VALUES ('maintenance_mode','false') ON CONFLICT (key) DO NOTHING`);
+    await client.query(`INSERT INTO platform_config (key,value) VALUES ('maintenance_message','We are performing scheduled maintenance. Back shortly.') ON CONFLICT (key) DO NOTHING`);
+
+    // ── NEW SELLER TRACKING ────────────────────────────────────────────────────
+    // Risk 3: track seller listing count so frontend can warn buyers about new sellers
+    await addCol("users","total_listings_posted","INT DEFAULT 0");
 
     await client.query("COMMIT");
     console.log(" DB migration complete");

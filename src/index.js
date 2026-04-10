@@ -25,6 +25,7 @@ const reviewRoutes = require("./routes/reviews");
 const requestRoutes = require("./routes/requests");
 const pitchRoutes = require("./routes/pitches");
 const pushRoutes = require("./routes/push");
+const { maintenanceMiddleware } = require("./middleware/maintenance");
 
 const app = express();
 const server = http.createServer(app);
@@ -418,6 +419,9 @@ const forgotLimiter = rateLimit({
 });
 
 // ── Routes ────────────────────────────────────────────────────────────────────
+// ── Maintenance mode — checked before all public routes ───────────────────────
+app.use(maintenanceMiddleware);
+
 app.use("/api/auth/forgot-password", forgotLimiter);
 app.use("/api/auth/login", authSlowDown);
 app.use("/api/auth", authLimiter, authRoutes);

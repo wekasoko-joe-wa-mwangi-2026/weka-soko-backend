@@ -156,7 +156,59 @@ function startCronJobs() {
     } catch (err) { console.error("[Cron] Unpaid listing cleanup:", err.message); }
   });
 
-  console.log("⏰ Cron jobs started: follow-ups | expiry | response-rates | escrow | payments | unpaid-listings");
+  // ── RISK 4: Dispute SLA alert — every hour ────────────────────────────────
+  // If a dispute sits unresolved for 24+ hours, email admin + create urgent notification
+  cron.schedule("0 * * * *", async () => {
+    try {
+      const { rows: staleDisputes } = await query(`
+        SELECT d.id, d.escrow_id, d.reason, d.created_at,
+               ub.name AS buyer_name, ub.email AS buyer_email,
+               us.name AS seller_name,
+               l.title AS listing_title, e.total_amount
+        FROM disputes d
+        JOIN escrows e ON e.id=d.escrow_id
+        JOIN users ub ON ub.id=e.buyer_id
+        JOIN users us ON us.id=e.seller_id
+        LEFT JOIN listings l ON l.id=e.listing_id
+        WHERE e.status='disputed'
+          AND d.created_at < NOW() - INTERVAL '24 hours'
+          AND d.admin_alerted_at IS NULL
+      `);
+      for (const dispute of staleDisputes) {
+        await query(`UPDATE disputes SET admin_alerted_at=NOW() WHERE id=$1`, [dispute.id]);
+        // Notify all admins
+        const { rows: admins } = await query(`SELECT email, name FROM users WHERE role='admin' AND is_suspended=FALSE`);
+        for (const admin of admins) {
+          sendEmail(
+            admin.email, admin.name,
+            `URGENT: Escrow dispute unresolved 24h — "${dispute.listing_title}"`,
+            `A dispute has been open for over 24 hours and needs your attention.<br><br>
+             <b>Listing:</b> ${dispute.listing_title}<br>
+             <b>Amount held:</b> KSh ${Number(dispute.total_amount).toLocaleString("en-KE")}<br>
+             <b>Buyer:</b> ${dispute.buyer_name} (${dispute.buyer_email})<br>
+             <b>Seller:</b> ${dispute.seller_name}<br>
+             <b>Reason:</b> ${dispute.reason}<br><br>
+             Please resolve this dispute in the admin panel immediately.`
+          ).catch(() => {});
+        }
+        console.log(`[Cron] Dispute SLA alert sent for dispute ${dispute.id}`);
+      }
+    } catch (err) { console.error("[Cron] Dispute SLA:", err.message); }
+  });
+
+  // ── RISK 3: New seller listing count sync — daily ─────────────────────────
+  cron.schedule("30 3 * * *", async () => {
+    try {
+      await query(`
+        UPDATE users u SET total_listings_posted = (
+          SELECT COUNT(*) FROM listings l WHERE l.seller_id=u.id AND l.status!='deleted'
+        ) WHERE u.role='seller'
+      `);
+      console.log("[Cron] Seller listing counts synced");
+    } catch (err) { console.error("[Cron] Seller count sync:", err.message); }
+  });
+
+  console.log("Cron jobs started: follow-ups | expiry | response-rates | escrow | payments | unpaid-listings | dispute-SLA | seller-count");
 }
 
 module.exports = { startCronJobs };
