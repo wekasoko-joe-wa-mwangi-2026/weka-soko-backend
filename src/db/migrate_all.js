@@ -348,6 +348,8 @@ async function runMigration() {
     await client.query(`CREATE INDEX IF NOT EXISTS idx_buyer_requests_category ON buyer_requests(category)`).catch(()=>{});
     await client.query(`CREATE INDEX IF NOT EXISTS idx_seller_pitches_request ON seller_pitches(request_id)`).catch(()=>{});
     await client.query(`CREATE INDEX IF NOT EXISTS idx_seller_pitches_seller ON seller_pitches(seller_id)`).catch(()=>{});
+    // pitch_id added after seller_pitches table exists
+    await addCol("payments","pitch_id","UUID REFERENCES seller_pitches(id) ON DELETE SET NULL");
 
     // ── PASSWORD HISTORY ──────────────────────────────────────────────────────
     await client.query(`CREATE TABLE IF NOT EXISTS password_history (

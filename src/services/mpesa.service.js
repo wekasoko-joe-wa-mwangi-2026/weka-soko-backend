@@ -147,7 +147,7 @@ async function handleCallback(body) {
     `UPDATE payments
      SET status = 'confirmed', mpesa_receipt = $1, confirmed_at = NOW(), updated_at = NOW()
      WHERE mpesa_checkout_id = $2
-     RETURNING id, type, listing_id, payer_id`,
+     RETURNING id, type, listing_id, payer_id, pitch_id`,
     [receipt, CheckoutRequestID]
   );
 
@@ -171,6 +171,30 @@ async function handleCallback(body) {
       `UPDATE escrows SET status = 'holding', release_after = $1 WHERE payment_id = $2`,
       [releaseAfter, payment.id]
     );
+  }
+
+  if (payment.type === "pitch_reveal" && payment.pitch_id) {
+    await query(
+      `UPDATE seller_pitches SET status = 'accepted', accepted_at = NOW() WHERE id = $1`,
+      [payment.pitch_id]
+    );
+    const { rows: pitchData } = await query(
+      `SELECT p.seller_id, r.title AS request_title
+       FROM seller_pitches p JOIN buyer_requests r ON r.id = p.request_id
+       WHERE p.id = $1`,
+      [payment.pitch_id]
+    );
+    if (pitchData.length) {
+      await query(
+        `INSERT INTO notifications (user_id,type,title,body,data)
+         VALUES ($1,'pitch_accepted','Your pitch was accepted!',$2,$3)`,
+        [
+          pitchData[0].seller_id,
+          `A buyer accepted your pitch on "${pitchData[0].request_title}". They now have your contact details.`,
+          JSON.stringify({ pitch_id: payment.pitch_id })
+        ]
+      ).catch(() => {});
+    }
   }
 
   return { success: true, receipt, amount, phone };

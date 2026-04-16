@@ -127,14 +127,11 @@ router.post("/:id/accept", requireAuth, async (req, res, next) => {
     // Initiate M-Pesa STK Push
     const { initiateSTKPush } = require("../services/mpesa.service");
     const { rows: payRow } = await query(
-      `INSERT INTO payments (payer_id,type,amount_kes,mpesa_phone,status) VALUES ($1,'pitch_reveal',$2,$3,'pending') RETURNING id`,
-      [req.user.id, finalAmount, phone]
+      `INSERT INTO payments (payer_id,type,amount_kes,mpesa_phone,status,pitch_id) VALUES ($1,'pitch_reveal',$2,$3,'pending',$4) RETURNING id`,
+      [req.user.id, finalAmount, phone, id]
     );
     const paymentId = payRow[0].id;
     if (voucherRow) await query(`UPDATE vouchers SET uses=uses+1 WHERE id=$1`, [voucherRow.id]);
-
-    // Store pitch_id in payment so callback can handle it
-    await query(`UPDATE payments SET mpesa_receipt='PITCH-PENDING-' || $1 WHERE id=$2`, [id, paymentId]);
 
     const result = await initiateSTKPush({
       phone, amount: finalAmount,
