@@ -2,64 +2,72 @@
 // Reviews are available after a listing is sold (status='sold') or escrow released.
 // Each party (buyer & seller) can leave exactly one review per transaction.
 const express = require("express");
-const { query } = require("../db/pool");
+const { query, withTransaction } = require("../db/pool");
 const { requireAuth } = require("../middleware/auth");
+const { ConcurrencyError } = require("../services/concurrency.service");
 
 const router = express.Router();
 
 // ── POST /api/reviews/:listingId ──────────────────────────────────────────────
 // Submit a review for a completed transaction
+// Uses transaction with row locking to prevent race conditions on upsert
 router.post("/:listingId", requireAuth, async (req, res, next) => {
   try {
     const { rating, comment } = req.body;
     if (!rating || rating < 1 || rating > 5) return res.status(400).json({ error: "Rating must be 1–5" });
 
-    // Verify listing is sold/completed
-    const { rows: ls } = await query(
-      `SELECT id, seller_id, locked_buyer_id, status FROM listings WHERE id=$1`,
-      [req.params.listingId]
-    );
-    if (!ls.length) return res.status(404).json({ error: "Listing not found" });
-    const listing = ls[0];
+    const { rows } = await withTransaction(async (client) => {
+      const { rows: ls } = await client.query(
+        `SELECT id, seller_id, locked_buyer_id, status FROM listings WHERE id=$1 FOR UPDATE`,
+        [req.params.listingId]
+      );
+      if (!ls.length) throw new ConcurrencyError("Listing not found", "NOT_FOUND");
+      const listing = ls[0];
 
-    const isSeller = listing.seller_id === req.user.id;
-    const isBuyer  = listing.locked_buyer_id === req.user.id;
+      const isSeller = listing.seller_id === req.user.id;
+      const isBuyer = listing.locked_buyer_id === req.user.id;
 
-    if (!isSeller && !isBuyer) {
-      return res.status(403).json({ error: "You were not a party in this transaction" });
-    }
-    if (!["sold","locked"].includes(listing.status)) {
-      return res.status(400).json({ error: "Reviews are only available after a sale is completed" });
-    }
-    if (!listing.locked_buyer_id) {
-      return res.status(400).json({ error: "No buyer associated with this listing" });
-    }
+      if (!isSeller && !isBuyer) {
+        throw new ConcurrencyError("You were not a party in this transaction", "FORBIDDEN");
+      }
+      if (!["sold","locked"].includes(listing.status)) {
+        throw new ConcurrencyError("Reviews are only available after a sale is completed", "INVALID_STATUS");
+      }
+      if (!listing.locked_buyer_id) {
+        throw new ConcurrencyError("No buyer associated with this listing", "NO_BUYER");
+      }
 
-    const reviewerRole = isSeller ? "seller" : "buyer";
-    const revieweeId = isSeller ? listing.locked_buyer_id : listing.seller_id;
+      const reviewerRole = isSeller ? "seller" : "buyer";
+      const revieweeId = isSeller ? listing.locked_buyer_id : listing.seller_id;
 
-    // Upsert — one review per listing per reviewer
-    const { rows } = await query(
-      `INSERT INTO reviews (listing_id, reviewer_id, reviewee_id, reviewer_role, rating, comment)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       ON CONFLICT (listing_id, reviewer_id) DO UPDATE SET rating=$5, comment=$6, created_at=NOW()
-       RETURNING *`,
-      [req.params.listingId, req.user.id, revieweeId, reviewerRole, Math.round(rating), comment?.trim() || null]
-    );
+      const { rows: reviewRows } = await client.query(
+        `INSERT INTO reviews (listing_id, reviewer_id, reviewee_id, reviewer_role, rating, comment, version)
+        VALUES ($1, $2, $3, $4, $5, $6, 1)
+        ON CONFLICT (listing_id, reviewer_id) DO UPDATE SET rating=$5, comment=$6, version=reviews.version+1, created_at=NOW()
+        RETURNING *`,
+        [req.params.listingId, req.user.id, revieweeId, reviewerRole, Math.round(rating), comment?.trim() || null]
+      );
 
-    // Notify the reviewee
-    await query(
-      `INSERT INTO notifications (user_id, type, title, body, data)
-       VALUES ($1, 'new_review', '⭐ You received a review', $2, $3)`,
-      [
-        revieweeId,
-        `You received a ${rating}-star review for "${listing.title || "your listing"}".${comment ? ` "${comment.slice(0, 80)}"` : ""}`,
-        JSON.stringify({ listing_id: req.params.listingId, rating })
-      ]
-    ).catch(() => {});
+      await client.query(
+        `INSERT INTO notifications (user_id, type, title, body, data)
+        VALUES ($1, 'new_review', '⭐ You received a review', $2, $3)`,
+        [
+          revieweeId,
+          `You received a ${rating}-star review for "${listing.title || "your listing"}".${comment ? ` "${comment.slice(0, 80)}"` : ""}`,
+          JSON.stringify({ listing_id: req.params.listingId, rating })
+        ]
+      ).catch(() => {});
+
+      return reviewRows;
+    });
 
     res.status(201).json({ ok: true, review: rows[0] });
-  } catch (err) { next(err); }
+  } catch (err) {
+    if (err.code === "NOT_FOUND") return res.status(404).json({ error: err.message, code: err.code });
+    if (err.code === "FORBIDDEN") return res.status(403).json({ error: err.message, code: err.code });
+    if (err.code === "INVALID_STATUS" || err.code === "NO_BUYER") return res.status(400).json({ error: err.message, code: err.code });
+    next(err);
+  }
 });
 
 // ── GET /api/reviews/user/:userId ─────────────────────────────────────────────

@@ -20,6 +20,7 @@ const { query, withTransaction } = require("../db/pool");
 const { requireAuth, optionalAuth, requireSeller } = require("../middleware/auth");
 const { scanListingForContact } = require("../services/moderation.service");
 const { uploadBuffer } = require("../services/cloudinary.service");
+const { safeListingUpdate, withLockInTransaction, ConcurrencyError } = require("../services/concurrency.service");
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10*1024*1024, files: 8 } });
 
@@ -364,41 +365,60 @@ router.get("/:id", optionalAuth, async (req, res, next) => {
 
 
 // ── PATCH /api/listings/:id ───────────────────────────────────────────────────
+// Uses optimistic locking to prevent lost updates
 router.patch("/:id", requireAuth, upload.array("photos", 8), async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { title, description, reason_for_sale, category, subcat, price, location, county, precise_location } = req.body;
-    const { rows: ex } = await query(`SELECT seller_id FROM listings WHERE id=$1`, [id]);
+    const { title, description, reason_for_sale, category, subcat, price, location, county, precise_location, version } = req.body;
+
+    const { rows: ex } = await query(`SELECT seller_id, version FROM listings WHERE id=$1`, [id]);
     if (!ex.length) return res.status(404).json({ error: "Listing not found" });
     if (ex[0].seller_id !== req.user.id && req.user.role !== "admin") return res.status(403).json({ error: "Not your listing" });
+
+    if (version !== undefined && version !== ex[0].version) {
+      return res.status(409).json({
+        error: "Listing was modified by another request. Please refresh and try again.",
+        code: "OPTIMISTIC_LOCK_FAILED",
+        currentVersion: ex[0].version
+      });
+    }
+
     const resolvedCounty = county || (location ? KENYA_COUNTIES.find(c => location.toLowerCase().includes(c.toLowerCase())) : undefined);
-    // Upload new photos to Cloudinary BEFORE the DB update — same principle as POST.
-    // Avoids making the user wait for Cloudinary while the DB is blocked.
+
     let patchUploads = [];
     if (req.files?.length) {
       patchUploads = await Promise.all(
         req.files.map((f, i) =>
           uploadBuffer(f.buffer, { folder: `weka-soko/listings/${id}` })
-            .then(r => ({ ...r, sort_order: i + 100 }))
+          .then(r => ({ ...r, sort_order: i + 100 }))
         )
       );
     }
 
     const { rows: preEdit } = await query(`SELECT status FROM listings WHERE id=$1`, [id]);
     const prevStatus = preEdit[0]?.status;
-    // Always send back for review on edit, unless already in the review queue
     const newStatus = prevStatus === "pending_review" ? undefined : "pending_review";
+
     const { rows } = await query(
       `UPDATE listings SET title=COALESCE($1,title), description=COALESCE($2,description),
-       reason_for_sale=COALESCE($3,reason_for_sale), category=COALESCE($4,category),
-       subcat=COALESCE($5,subcat),
-       price=COALESCE($6,price), location=COALESCE($7,location), county=COALESCE($8,county),
-       status=COALESCE($10,status),
-       moderation_note=CASE WHEN $10='pending_review' THEN NULL ELSE moderation_note END,
-       precise_location=COALESCE($11,precise_location),
-       updated_at=NOW() WHERE id=$9 RETURNING *`,
-      [title, description, reason_for_sale, category, subcat||null, price?parseFloat(price):null, location, resolvedCounty||null, id, newStatus||null, precise_location||null]
+      reason_for_sale=COALESCE($3,reason_for_sale), category=COALESCE($4,category),
+      subcat=COALESCE($5,subcat),
+      price=COALESCE($6,price), location=COALESCE($7,location), county=COALESCE($8,county),
+      status=COALESCE($10,status),
+      moderation_note=CASE WHEN $10='pending_review' THEN NULL ELSE moderation_note END,
+      precise_location=COALESCE($11,precise_location),
+      version=version+1,
+      updated_at=NOW() WHERE id=$9 AND version=$12 RETURNING *`,
+      [title, description, reason_for_sale, category, subcat||null, price?parseFloat(price):null, location, resolvedCounty||null, id, newStatus||null, precise_location||null, ex[0].version]
     );
+
+    if (!rows.length) {
+      return res.status(409).json({
+        error: "Listing was modified by another request. Please refresh and try again.",
+        code: "OPTIMISTIC_LOCK_FAILED"
+      });
+    }
+
     if (patchUploads.length) {
       await Promise.all(patchUploads.map(({ url, public_id, sort_order }) =>
         query(`INSERT INTO listing_photos (listing_id,url,public_id,sort_order) VALUES ($1,$2,$3,$4)`, [id, url, public_id, sort_order])
@@ -413,12 +433,30 @@ router.patch("/:id", requireAuth, upload.array("photos", 8), async (req, res, ne
 });
 
 // ── DELETE /api/listings/:id ──────────────────────────────────────────────────
+// Uses optimistic locking to prevent concurrent deletions
 router.delete("/:id", requireAuth, async (req, res, next) => {
   try {
-    const { rows } = await query(`SELECT seller_id FROM listings WHERE id=$1`, [req.params.id]);
+    const { version } = req.body;
+    const { rows } = await query(`SELECT seller_id, version FROM listings WHERE id=$1`, [req.params.id]);
     if (!rows.length) return res.status(404).json({ error: "Not found" });
     if (rows[0].seller_id !== req.user.id && req.user.role !== "admin") return res.status(403).json({ error: "Not your listing" });
-    await query(`UPDATE listings SET status='deleted' WHERE id=$1`, [req.params.id]);
+
+    if (version !== undefined && version !== rows[0].version) {
+      return res.status(409).json({
+        error: "Listing was modified by another request. Please refresh and try again.",
+        code: "OPTIMISTIC_LOCK_FAILED",
+        currentVersion: rows[0].version
+      });
+    }
+
+    const result = await query(`UPDATE listings SET status='deleted', version=version+1 WHERE id=$1 AND version=$2 RETURNING id`, [req.params.id, rows[0].version]);
+    if (!result.rowCount) {
+      return res.status(409).json({
+        error: "Listing was modified by another request. Please refresh and try again.",
+        code: "OPTIMISTIC_LOCK_FAILED"
+      });
+    }
+
     const io=req.app.get("io");
     if(io)io.emit("listing_removed",{id:req.params.id});
     res.json({ message: "Listing deleted" });
@@ -427,14 +465,15 @@ router.delete("/:id", requireAuth, async (req, res, next) => {
 
 // ── POST /api/listings/:id/mark-sold ─────────────────────────────────────────
 // Seller marks their own listing as sold, recording whether it sold on platform or outside
+// Uses optimistic locking to prevent race conditions
 router.post("/:id/mark-sold", requireAuth, async (req, res, next) => {
   try {
-    const { channel } = req.body; // "platform" or "outside"
+    const { channel, version } = req.body;
     if (!["platform", "outside"].includes(channel)) {
       return res.status(400).json({ error: "channel must be 'platform' or 'outside'" });
     }
     const { rows } = await query(
-      `SELECT id, seller_id, status, title FROM listings WHERE id=$1`,
+      `SELECT id, seller_id, status, title, version FROM listings WHERE id=$1`,
       [req.params.id]
     );
     if (!rows.length) return res.status(404).json({ error: "Listing not found" });
@@ -445,10 +484,26 @@ router.post("/:id/mark-sold", requireAuth, async (req, res, next) => {
       return res.status(400).json({ error: "Cannot mark deleted/archived listing as sold" });
     }
 
-    await query(
-      `UPDATE listings SET status='sold', sold_channel=$1, sold_at=NOW(), updated_at=NOW() WHERE id=$2`,
-      [channel, listing.id]
+    if (version !== undefined && version !== listing.version) {
+      return res.status(409).json({
+        error: "Listing was modified by another request. Please refresh and try again.",
+        code: "OPTIMISTIC_LOCK_FAILED",
+        currentVersion: listing.version
+      });
+    }
+
+    const result = await query(
+      `UPDATE listings SET status='sold', sold_channel=$1, sold_at=NOW(), updated_at=NOW(), version=version+1 WHERE id=$2 AND version=$3 RETURNING id`,
+      [channel, listing.id, listing.version]
     );
+
+    if (!result.rowCount) {
+      return res.status(409).json({
+        error: "Listing was modified by another request. Please refresh and try again.",
+        code: "OPTIMISTIC_LOCK_FAILED"
+      });
+    }
+
     const io=req.app.get("io");
     if(io)io.emit("listing_removed",{id:listing.id});
 
@@ -456,8 +511,8 @@ router.post("/:id/mark-sold", requireAuth, async (req, res, next) => {
     try {
       await query(
         `INSERT INTO notifications (user_id, type, title, body, data)
-         SELECT id, 'admin_edit', 'Listing Marked Sold',
-           $1, $2::jsonb FROM users WHERE role='admin' LIMIT 5`,
+        SELECT id, 'admin_edit', 'Listing Marked Sold',
+        $1, $2::jsonb FROM users WHERE role='admin' LIMIT 5`,
         [
           `"${listing.title}" marked as sold ${channel === "platform" ? "via Weka Soko" : "outside platform"}`,
           JSON.stringify({ listing_id: listing.id, channel })
@@ -470,21 +525,28 @@ router.post("/:id/mark-sold", requireAuth, async (req, res, next) => {
 });
 
 // ── POST /api/listings/:id/save — toggle save/unsave ─────────────────────────
+// Uses transaction with conflict detection for race condition protection
 router.post("/:id/save", requireAuth, async (req, res, next) => {
   try {
-    const { rows } = await query(
-      `SELECT id FROM saved_listings WHERE user_id=$1 AND listing_id=$2`,
-      [req.user.id, req.params.id]
-    );
-    if (rows.length) {
-      await query(`DELETE FROM saved_listings WHERE user_id=$1 AND listing_id=$2`, [req.user.id, req.params.id]);
-      return res.json({ saved: false });
-    }
-    await query(
-      `INSERT INTO saved_listings (user_id, listing_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`,
-      [req.user.id, req.params.id]
-    );
-    res.json({ saved: true });
+    const result = await withTransaction(async (client) => {
+      const { rows } = await client.query(
+        `SELECT id FROM saved_listings WHERE user_id=$1 AND listing_id=$2 FOR UPDATE`,
+        [req.user.id, req.params.id]
+      );
+
+      if (rows.length) {
+        await client.query(`DELETE FROM saved_listings WHERE user_id=$1 AND listing_id=$2`, [req.user.id, req.params.id]);
+        return { saved: false };
+      }
+
+      await client.query(
+        `INSERT INTO saved_listings (user_id, listing_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`,
+        [req.user.id, req.params.id]
+      );
+      return { saved: true };
+    });
+
+    res.json(result);
 
     // Async: notify seller that a buyer saved their listing
     (async () => {
@@ -519,28 +581,47 @@ router.post("/:id/save", requireAuth, async (req, res, next) => {
 });
 
 // ── POST /api/listings/:id/lock-in ────────────────────────────────────────────
+// Uses SELECT FOR UPDATE to prevent race conditions when multiple buyers try to lock in
 router.post("/:id/lock-in", requireAuth, async (req, res, next) => {
   try {
-    const { rows } = await query(`SELECT l.*, u.email AS seller_email, u.name AS seller_name FROM listings l JOIN users u ON u.id=l.seller_id WHERE l.id=$1 AND l.status='active'`, [req.params.id]);
-    if (!rows.length) return res.status(404).json({ error: "Listing not found or no longer active" });
-    const listing = rows[0];
-    if (listing.seller_id === req.user.id) return res.status(400).json({ error: "Cannot lock in on your own listing" });
-    if (listing.locked_buyer_id) return res.status(409).json({ error: "Another buyer has already locked in" });
-    await query(`UPDATE listings SET locked_buyer_id=$1,locked_at=NOW(),status='locked',interest_count=interest_count+1 WHERE id=$2`, [req.user.id, req.params.id]);
-    await query(
-      `INSERT INTO notifications (user_id,type,title,body,data) VALUES ($1,'buyer_locked_in','A buyer has locked in!',$2,$3)`,
-      [listing.seller_id, `A serious buyer locked in on "${listing.title}". Pay KSh 250 to reveal their contact.`, JSON.stringify({ listing_id: req.params.id })]
-    );
-    // Email the seller immediately — they may not be on the platform
+    if (req.user.id === req.params.id) return res.status(400).json({ error: "Cannot lock in on your own listing" });
+
+    const result = await withLockInTransaction(req.params.id, async (listing, client) => {
+      if (listing.seller_id === req.user.id) {
+        throw new ConcurrencyError("Cannot lock in on your own listing", "OWN_LISTING");
+      }
+      if (listing.locked_buyer_id) {
+        throw new ConcurrencyError("Another buyer has already locked in", "ALREADY_LOCKED");
+      }
+
+      await client.query(
+        `UPDATE listings SET locked_buyer_id=$1,locked_at=NOW(),status='locked',interest_count=interest_count+1,version=version+1 WHERE id=$2`,
+        [req.user.id, req.params.id]
+      );
+
+      await client.query(
+        `INSERT INTO notifications (user_id,type,title,body,data) VALUES ($1,'buyer_locked_in','A buyer has locked in!',$2,$3)`,
+        [listing.seller_id, `A serious buyer locked in on "${listing.title}". Pay KSh 250 to reveal their contact.`, JSON.stringify({ listing_id: req.params.id })]
+      );
+
+      return listing;
+    });
+
     const { sendEmail } = require("../services/email.service");
     sendEmail(
-      listing.seller_email,
-      listing.seller_name,
-      `A serious buyer wants your "${listing.title}"`,
-      `Good news! A serious buyer just locked in on your listing "<strong>${listing.title}</strong>".<br><br>Pay <strong>KSh 250</strong> to reveal their contact details and close the deal.<br><br><a href="https://weka-soko-nextjs.vercel.app/dashboard">Go to your dashboard →</a>`
+      result.seller_email,
+      result.seller_name,
+      `A serious buyer wants your "${result.title}"`,
+      `Good news! A serious buyer just locked in on your listing "<strong>${result.title}</strong>".<br><br>Pay <strong>KSh 250</strong> to reveal their contact details and close the deal.<br><br><a href="https://weka-soko-nextjs.vercel.app/dashboard">Go to your dashboard →</a>`
     ).catch(() => {});
+
     res.json({ message: "Locked in. Seller has been notified." });
-  } catch (err) { next(err); }
+  } catch (err) {
+    if (err.code === "ALREADY_LOCKED") return res.status(409).json({ error: err.message });
+    if (err.code === "OWN_LISTING") return res.status(400).json({ error: err.message });
+    if (err.code === "NOT_FOUND") return res.status(404).json({ error: err.message });
+    next(err);
+  }
 });
 
 // ── POST /api/listings/:id/report ─────────────────────────────────────────────

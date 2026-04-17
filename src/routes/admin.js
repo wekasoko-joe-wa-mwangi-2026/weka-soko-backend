@@ -1,8 +1,9 @@
 // src/routes/admin.js
 const express = require("express");
-const { query } = require("../db/pool");
+const { query, withTransaction } = require("../db/pool");
 const { requireAuth, requireAdmin } = require("../middleware/auth");
 const { auditLog } = require("../services/audit.service");
+const { ConcurrencyError } = require("../services/concurrency.service");
 const router = express.Router();
 
 let _io = null;
@@ -146,19 +147,41 @@ router.get("/escrows", async (req, res, next) => {
 });
 
 // ── POST /api/admin/escrows/:id/release ──────────────────────────────────────
+// Uses optimistic locking with transaction to prevent race conditions
 router.post("/escrows/:id/release", async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { notes } = req.body;
+    const { notes, version } = req.body;
     const { rows } = await query(`SELECT * FROM escrows WHERE id = $1 AND status IN ('holding', 'disputed')`, [id]);
     if (!rows.length) return res.status(404).json({ error: "Escrow not found or already resolved" });
     const escrow = rows[0];
-    await query(`UPDATE escrows SET status = 'released', released_at = NOW(), released_by = $1, notes = $2 WHERE id = $3`, [req.user.id, notes || "Admin force release", id]);
-    await query(`UPDATE listings SET status = 'sold' WHERE id = $1`, [escrow.listing_id]);
-    await query(`INSERT INTO notifications (user_id, type, title, body) VALUES ($1, 'escrow_released', ' Funds Released', 'An admin has released your escrow funds. They should reflect in your M-Pesa shortly.')`, [escrow.seller_id]);
+
+    if (version !== undefined && version !== escrow.version) {
+      return res.status(409).json({
+        error: "Escrow was modified by another request. Please refresh and try again.",
+        code: "OPTIMISTIC_LOCK_FAILED",
+        currentVersion: escrow.version
+      });
+    }
+
+    await withTransaction(async (client) => {
+      const result = await client.query(
+        `UPDATE escrows SET status = 'released', released_at = NOW(), released_by = $1, notes = $2, version = version + 1 WHERE id = $3 AND version = $4 RETURNING *`,
+        [req.user.id, notes || "Admin force release", id, escrow.version]
+      );
+      if (!result.rowCount) {
+        throw new ConcurrencyError("Escrow was modified by another request. Please refresh.", "OPTIMISTIC_LOCK_FAILED");
+      }
+      await client.query(`UPDATE listings SET status = 'sold', version = version + 1 WHERE id = $1`, [escrow.listing_id]);
+      await client.query(`INSERT INTO notifications (user_id, type, title, body) VALUES ($1, 'escrow_released', ' Funds Released', 'An admin has released your escrow funds. They should reflect in your M-Pesa shortly.')`, [escrow.seller_id]);
+    });
+
     await auditLog({ adminId: req.user.id, adminEmail: req.user.email, action: "escrow_release", targetType: "escrow", targetId: id, details: { listing_id: escrow.listing_id, seller_id: escrow.seller_id, notes }, ip: req.ip });
     res.json({ message: "Escrow released successfully" });
-  } catch (err) { next(err); }
+  } catch (err) {
+    if (err.code === "OPTIMISTIC_LOCK_FAILED") return res.status(409).json({ error: err.message, code: err.code });
+    next(err);
+  }
 });
 
 // ── GET /api/admin/disputes ───────────────────────────────────────────────────
@@ -176,23 +199,45 @@ router.get("/disputes", async (req, res, next) => {
 });
 
 // ── POST /api/admin/disputes/:id/resolve ─────────────────────────────────────
+// Uses optimistic locking with transaction to prevent race conditions
 router.post("/disputes/:id/resolve", async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { resolution, release_to } = req.body;
+    const { resolution, release_to, version } = req.body;
     const { rows } = await query(`SELECT * FROM disputes WHERE id = $1 AND status = 'open'`, [id]);
     if (!rows.length) return res.status(404).json({ error: "Dispute not found or already resolved" });
     const dispute = rows[0];
     const { rows: escrowRows } = await query(`SELECT * FROM escrows WHERE id = $1`, [dispute.escrow_id]);
     const escrow = escrowRows[0];
-    await query(`UPDATE disputes SET status = 'resolved', resolved_by = $1, resolution = $2 WHERE id = $3`, [req.user.id, resolution, id]);
-    const escrowStatus = release_to === "seller" ? "released" : "refunded";
-    await query(`UPDATE escrows SET status = $1, released_at = NOW(), released_by = $2 WHERE id = $3`, [escrowStatus, req.user.id, dispute.escrow_id]);
-    const notifyUserId = release_to === "seller" ? escrow.seller_id : escrow.buyer_id;
-    await query(`INSERT INTO notifications (user_id, type, title, body) VALUES ($1, 'dispute_resolved', 'Dispute Resolved', $2)`, [notifyUserId, `Your dispute has been resolved in your favour. Resolution: ${resolution}`]);
+
+    if (version !== undefined && version !== escrow.version) {
+      return res.status(409).json({
+        error: "Escrow was modified by another request. Please refresh and try again.",
+        code: "OPTIMISTIC_LOCK_FAILED",
+        currentVersion: escrow.version
+      });
+    }
+
+    await withTransaction(async (client) => {
+      const escrowStatus = release_to === "seller" ? "released" : "refunded";
+      const result = await client.query(
+        `UPDATE escrows SET status = $1, released_at = NOW(), released_by = $2, version = version + 1 WHERE id = $3 AND version = $4 RETURNING *`,
+        [escrowStatus, req.user.id, dispute.escrow_id, escrow.version]
+      );
+      if (!result.rowCount) {
+        throw new ConcurrencyError("Escrow was modified by another request. Please refresh.", "OPTIMISTIC_LOCK_FAILED");
+      }
+      await client.query(`UPDATE disputes SET status = 'resolved', resolved_by = $1, resolution = $2 WHERE id = $3`, [req.user.id, resolution, id]);
+      const notifyUserId = release_to === "seller" ? escrow.seller_id : escrow.buyer_id;
+      await client.query(`INSERT INTO notifications (user_id, type, title, body) VALUES ($1, 'dispute_resolved', 'Dispute Resolved', $2)`, [notifyUserId, `Your dispute has been resolved in your favour. Resolution: ${resolution}`]);
+    });
+
     await auditLog({ adminId: req.user.id, adminEmail: req.user.email, action: "dispute_resolve", targetType: "dispute", targetId: id, details: { resolution, release_to, escrow_id: dispute.escrow_id }, ip: req.ip });
     res.json({ message: "Dispute resolved" });
-  } catch (err) { next(err); }
+  } catch (err) {
+    if (err.code === "OPTIMISTIC_LOCK_FAILED") return res.status(409).json({ error: err.message, code: err.code });
+    next(err);
+  }
 });
 
 // ── GET /api/admin/users ──────────────────────────────────────────────────────
@@ -213,14 +258,36 @@ router.get("/users", async (req, res, next) => {
 });
 
 // ── POST /api/admin/users/:id/suspend ────────────────────────────────────────
+// Uses optimistic locking to prevent race conditions
 router.post("/users/:id/suspend", async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { suspend } = req.body;
-    await query(`UPDATE users SET is_suspended = $1 WHERE id = $2`, [!!suspend, id]);
+    const { suspend, version } = req.body;
+    const { rows } = await query(`SELECT version FROM users WHERE id = $1`, [id]);
+    if (!rows.length) return res.status(404).json({ error: "User not found" });
+
+    if (version !== undefined && version !== rows[0].version) {
+      return res.status(409).json({
+        error: "User was modified by another request. Please refresh and try again.",
+        code: "OPTIMISTIC_LOCK_FAILED",
+        currentVersion: rows[0].version
+      });
+    }
+
+    const result = await query(`UPDATE users SET is_suspended = $1, version = version + 1 WHERE id = $2 AND version = $3 RETURNING *`, [!!suspend, id, rows[0].version]);
+    if (!result.rowCount) {
+      return res.status(409).json({
+        error: "User was modified by another request. Please refresh and try again.",
+        code: "OPTIMISTIC_LOCK_FAILED"
+      });
+    }
+
     await auditLog({ adminId: req.user.id, adminEmail: req.user.email, action: suspend ? "user_suspend" : "user_unsuspend", targetType: "user", targetId: id, ip: req.ip });
     res.json({ message: `User ${suspend ? "suspended" : "unsuspended"}` });
-  } catch (err) { next(err); }
+  } catch (err) {
+    if (err.code === "OPTIMISTIC_LOCK_FAILED") return res.status(409).json({ error: err.message, code: err.code });
+    next(err);
+  }
 });
 
 // ── POST /api/admin/users/:id/warn ───────────────────────────────────────────
@@ -344,9 +411,21 @@ router.get("/listings/:id/detail", async (req, res, next) => {
 });
 
 // ── PATCH /api/admin/listings/:id ────────────────────────────────────────────
+// Uses optimistic locking to prevent lost updates
 router.patch("/listings/:id", async (req, res, next) => {
   try {
-    const { status, free_unlock, title, description, reason_for_sale, category, price, location, county } = req.body;
+    const { status, free_unlock, title, description, reason_for_sale, category, price, location, county, version } = req.body;
+    const { rows: existing } = await query(`SELECT version FROM listings WHERE id = $1`, [req.params.id]);
+    if (!existing.length) return res.status(404).json({ error: "Listing not found" });
+
+    if (version !== undefined && version !== existing[0].version) {
+      return res.status(409).json({
+        error: "Listing was modified by another request. Please refresh and try again.",
+        code: "OPTIMISTIC_LOCK_FAILED",
+        currentVersion: existing[0].version
+      });
+    }
+
     const updates = [];
     const params = [];
     if (status) { params.push(status); updates.push(`status = $${params.length}`); }
@@ -359,10 +438,20 @@ router.patch("/listings/:id", async (req, res, next) => {
     if (location) { params.push(location); updates.push(`location = $${params.length}`); }
     if (county) { params.push(county); updates.push(`county = $${params.length}`); }
     if (!updates.length) return res.status(400).json({ error: "Nothing to update" });
+
+    updates.push("version = version + 1");
     params.push(req.params.id);
-    const { rows } = await query(`UPDATE listings SET ${updates.join(", ")}, updated_at=NOW() WHERE id=$${params.length} RETURNING *`, params);
-    if (!rows.length) return res.status(404).json({ error: "Listing not found" });
-    const changed = Object.keys(req.body).filter(k => k !== "free_unlock").join(", ");
+    params.push(existing[0].version);
+
+    const { rows } = await query(`UPDATE listings SET ${updates.join(", ")}, updated_at=NOW() WHERE id=$${params.length - 1} AND version = $${params.length} RETURNING *`, params);
+    if (!rows.length) {
+      return res.status(409).json({
+        error: "Listing was modified by another request. Please refresh and try again.",
+        code: "OPTIMISTIC_LOCK_FAILED"
+      });
+    }
+
+    const changed = Object.keys(req.body).filter(k => k !== "free_unlock" && k !== "version").join(", ");
     if (changed) {
       await query(
         `INSERT INTO notifications (user_id, type, title, body, data) VALUES ($1, 'admin_edit', 'Your listing was edited by admin', $2, $3)`,
@@ -370,13 +459,15 @@ router.patch("/listings/:id", async (req, res, next) => {
       ).catch(() => {});
     }
     await auditLog({ adminId: req.user.id, adminEmail: req.user.email, action: "listing_edit", targetType: "listing", targetId: req.params.id, details: { changed_fields: Object.keys(req.body), title: rows[0].title }, ip: req.ip });
-    // Remove from live feeds if listing is no longer active
     if(status&&["sold","flagged","rejected","archived","deleted"].includes(status)){
       const ioInst=req.app?.get("io");
       if(ioInst)ioInst.emit("listing_removed",{id:req.params.id});
     }
     res.json(rows[0]);
-  } catch (err) { next(err); }
+  } catch (err) {
+    if (err.code === "OPTIMISTIC_LOCK_FAILED") return res.status(409).json({ error: err.message, code: err.code });
+    next(err);
+  }
 });
 
 // ── DELETE /api/admin/listings/:id ───────────────────────────────────────────
@@ -400,15 +491,37 @@ router.delete("/listings/:id", async (req, res, next) => {
 });
 
 // ── POST /api/admin/listings/:id/free-unlock ─────────────────────────────────
+// Uses optimistic locking to prevent race conditions
 router.post("/listings/:id/free-unlock", async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { rows } = await query(`UPDATE listings SET is_unlocked = TRUE, updated_at = NOW() WHERE id = $1 RETURNING *`, [id]);
-    if (!rows.length) return res.status(404).json({ error: "Listing not found" });
+    const { version } = req.body;
+    const { rows: existing } = await query(`SELECT version FROM listings WHERE id = $1`, [id]);
+    if (!existing.length) return res.status(404).json({ error: "Listing not found" });
+
+    if (version !== undefined && version !== existing[0].version) {
+      return res.status(409).json({
+        error: "Listing was modified by another request. Please refresh and try again.",
+        code: "OPTIMISTIC_LOCK_FAILED",
+        currentVersion: existing[0].version
+      });
+    }
+
+    const { rows } = await query(`UPDATE listings SET is_unlocked = TRUE, updated_at = NOW(), version = version + 1 WHERE id = $1 AND version = $2 RETURNING *`, [id, existing[0].version]);
+    if (!rows.length) {
+      return res.status(409).json({
+        error: "Listing was modified by another request. Please refresh and try again.",
+        code: "OPTIMISTIC_LOCK_FAILED"
+      });
+    }
+
     await query(`INSERT INTO notifications (user_id, type, title, body) VALUES ($1, 'admin_unlock', 'Admin Unlocked', 'An admin has unlocked this listing for free. You can now see the buyer contact details.')`, [rows[0].seller_id]);
     await auditLog({ adminId: req.user.id, adminEmail: req.user.email, action: "listing_free_unlock", targetType: "listing", targetId: id, details: { title: rows[0].title }, ip: req.ip });
     res.json({ message: "Listing unlocked for free", listing: rows[0] });
-  } catch (err) { next(err); }
+  } catch (err) {
+    if (err.code === "OPTIMISTIC_LOCK_FAILED") return res.status(409).json({ error: err.message, code: err.code });
+    next(err);
+  }
 });
 
 // ── POST /api/admin/listings/:id/restore ─────────────────────────────────────
@@ -440,23 +553,73 @@ router.post("/users/:id/free-unlock", async (req, res) => {
 });
 
 // ── POST /api/admin/escrows/:id/approve ──────────────────────────────────────
+// Uses optimistic locking to prevent race conditions
 router.post("/escrows/:id/approve", async (req, res, next) => {
   try {
-    const { rows } = await query(`UPDATE escrows SET admin_approved=TRUE, approved_by=$1, approved_at=NOW() WHERE id=$2 RETURNING *`, [req.user.id, req.params.id]);
-    if (!rows.length) return res.status(404).json({ error: "Escrow not found" });
+    const { version } = req.body;
+    const { rows: existing } = await query(`SELECT version FROM escrows WHERE id = $1`, [req.params.id]);
+    if (!existing.length) return res.status(404).json({ error: "Escrow not found" });
+
+    if (version !== undefined && version !== existing[0].version) {
+      return res.status(409).json({
+        error: "Escrow was modified by another request. Please refresh and try again.",
+        code: "OPTIMISTIC_LOCK_FAILED",
+        currentVersion: existing[0].version
+      });
+    }
+
+    const { rows } = await query(
+      `UPDATE escrows SET admin_approved=TRUE, approved_by=$1, approved_at=NOW(), version=version+1 WHERE id=$2 AND version=$3 RETURNING *`,
+      [req.user.id, req.params.id, existing[0].version]
+    );
+    if (!rows.length) {
+      return res.status(409).json({
+        error: "Escrow was modified by another request. Please refresh and try again.",
+        code: "OPTIMISTIC_LOCK_FAILED"
+      });
+    }
+
     await auditLog({ adminId: req.user.id, adminEmail: req.user.email, action: "escrow_approve", targetType: "escrow", targetId: req.params.id, ip: req.ip });
     res.json(rows[0]);
-  } catch (err) { next(err); }
+  } catch (err) {
+    if (err.code === "OPTIMISTIC_LOCK_FAILED") return res.status(409).json({ error: err.message, code: err.code });
+    next(err);
+  }
 });
 
 // ── POST /api/admin/escrows/:id/refund ───────────────────────────────────────
+// Uses optimistic locking to prevent race conditions
 router.post("/escrows/:id/refund", async (req, res, next) => {
   try {
-    const { rows } = await query(`UPDATE escrows SET status='refunded', released_at=NOW(), released_by=$1, notes='Admin refund' WHERE id=$2 RETURNING *`, [req.user.id, req.params.id]);
-    if (!rows.length) return res.status(404).json({ error: "Escrow not found" });
+    const { version } = req.body;
+    const { rows: existing } = await query(`SELECT version FROM escrows WHERE id = $1`, [req.params.id]);
+    if (!existing.length) return res.status(404).json({ error: "Escrow not found" });
+
+    if (version !== undefined && version !== existing[0].version) {
+      return res.status(409).json({
+        error: "Escrow was modified by another request. Please refresh and try again.",
+        code: "OPTIMISTIC_LOCK_FAILED",
+        currentVersion: existing[0].version
+      });
+    }
+
+    const { rows } = await query(
+      `UPDATE escrows SET status='refunded', released_at=NOW(), released_by=$1, notes='Admin refund', version=version+1 WHERE id=$2 AND version=$3 RETURNING *`,
+      [req.user.id, req.params.id, existing[0].version]
+    );
+    if (!rows.length) {
+      return res.status(409).json({
+        error: "Escrow was modified by another request. Please refresh and try again.",
+        code: "OPTIMISTIC_LOCK_FAILED"
+      });
+    }
+
     await auditLog({ adminId: req.user.id, adminEmail: req.user.email, action: "escrow_refund", targetType: "escrow", targetId: req.params.id, ip: req.ip });
     res.json(rows[0]);
-  } catch (err) { next(err); }
+  } catch (err) {
+    if (err.code === "OPTIMISTIC_LOCK_FAILED") return res.status(409).json({ error: err.message, code: err.code });
+    next(err);
+  }
 });
 
 // ── GET /api/admin/vouchers ───────────────────────────────────────────────────

@@ -471,11 +471,40 @@ async function runMigration() {
     // Risk 3: track seller listing count so frontend can warn buyers about new sellers
     await addCol("users","total_listings_posted","INT DEFAULT 0");
 
-    // ── ADMIN UNLOCK DISCOUNT ──────────────────────────────────────────────────
-    // Admin can grant a KSh discount (or full free unlock) on the KSh 250 unlock fee
-    await addCol("listings","unlock_discount","INT DEFAULT 0");
+// ── ADMIN UNLOCK DISCOUNT ──────────────────────────────────────────────────
+// Admin can grant a KSh discount (or full free unlock) on the KSh 250 unlock fee
+await addCol("listings","unlock_discount","INT DEFAULT 0");
 
-    await client.query("COMMIT");
+// ── OPTIMISTIC LOCKING VERSION COLUMNS ─────────────────────────────────────
+// Risk 7: Add version columns for optimistic locking to prevent lost updates
+await addCol("users","version","INT DEFAULT 1");
+await addCol("listings","version","INT DEFAULT 1");
+await addCol("payments","version","INT DEFAULT 1");
+await addCol("escrows","version","INT DEFAULT 1");
+await addCol("reviews","version","INT DEFAULT 1");
+await addCol("buyer_requests","version","INT DEFAULT 1");
+await addCol("seller_pitches","version","INT DEFAULT 1");
+await addCol("vouchers","version","INT DEFAULT 1");
+await addCol("chat_messages","version","INT DEFAULT 1");
+
+// Indexes for optimistic locking version checks (helps PostgreSQL reuse query plans)
+await client.query(`CREATE INDEX IF NOT EXISTS idx_listings_version ON listings(version) WHERE version IS NOT NULL`).catch(()=>{});
+await client.query(`CREATE INDEX IF NOT EXISTS idx_payments_version ON payments(version) WHERE version IS NOT NULL`).catch(()=>{});
+await client.query(`CREATE INDEX IF NOT EXISTS idx_escrows_version ON escrows(version) WHERE version IS NOT NULL`).catch(()=>{});
+await client.query(`CREATE INDEX IF NOT EXISTS idx_users_version ON users(version) WHERE version IS NOT NULL`).catch(()=>{});
+
+// Backfill version=1 for existing rows that don't have one
+await client.query(`UPDATE users SET version=1 WHERE version IS NULL`).catch(()=>{});
+await client.query(`UPDATE listings SET version=1 WHERE version IS NULL`).catch(()=>{});
+await client.query(`UPDATE payments SET version=1 WHERE version IS NULL`).catch(()=>{});
+await client.query(`UPDATE escrows SET version=1 WHERE version IS NULL`).catch(()=>{});
+await client.query(`UPDATE reviews SET version=1 WHERE version IS NULL`).catch(()=>{});
+await client.query(`UPDATE buyer_requests SET version=1 WHERE version IS NULL`).catch(()=>{});
+await client.query(`UPDATE seller_pitches SET version=1 WHERE version IS NULL`).catch(()=>{});
+await client.query(`UPDATE vouchers SET version=1 WHERE version IS NULL`).catch(()=>{});
+await client.query(`UPDATE chat_messages SET version=1 WHERE version IS NULL`).catch(()=>{});
+
+await client.query("COMMIT");
     console.log(" DB migration complete");
 
     // ── Admin seed (runs OUTSIDE main transaction so failures don't abort migration) ──
