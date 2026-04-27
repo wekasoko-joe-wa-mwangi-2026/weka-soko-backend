@@ -188,12 +188,14 @@ router.get("/admin/sold", requireAuth, async (req, res, next) => {
     
     const { q, page=1, limit=50 } = req.query;
     const offset = (parseInt(page)-1)*parseInt(limit);
+    const limitInt = parseInt(limit);
+    const offsetInt = parseInt(offset);
     const params = [];
     let where = "WHERE l.status='sold'";
     
     if (q) {
       params.push(`%${q}%`);
-      where += ` AND (l.title ILIKE $${params.length} OR u.name ILIKE $${params.length} OR u.email ILIKE $${params.length})`;
+      where += ` AND (l.title ILIKE $1 OR u.name ILIKE $1 OR u.email ILIKE $1)`;
     }
     
     // Get total count
@@ -204,8 +206,11 @@ router.get("/admin/sold", requireAuth, async (req, res, next) => {
       params
     );
     
-    // Get sold listings
-    params.push(parseInt(limit), offset);
+    // Get sold listings - add limit and offset to params
+    params.push(limitInt, offsetInt);
+    const param1 = params.length - 1; // index for limit
+    const param2 = params.length;     // index for offset
+    
     const { rows } = await query(
       `SELECT l.id, l.title, l.category, l.price, l.location, l.county, l.status,
       l.view_count, l.interest_count, l.created_at,
@@ -219,7 +224,7 @@ router.get("/admin/sold", requireAuth, async (req, res, next) => {
       LEFT JOIN users u2 ON u2.id=l.locked_buyer_id
       ${where}
       ORDER BY COALESCE(l.sold_at, l.updated_at) DESC
-      LIMIT $${params.length-1} OFFSET $${params.length}`,
+      LIMIT $${param1} OFFSET $${param2}`,
       params
     );
     
