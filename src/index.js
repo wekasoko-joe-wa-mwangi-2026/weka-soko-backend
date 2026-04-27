@@ -173,8 +173,8 @@ io.on("connection", (socket) => {
           const systemBody = severity === "suspended"
             ? `ACCOUNT SUSPENDED: Your message was blocked and your account has been suspended for sharing contact information ("${violation.reason}"). You have received ${count} violation(s). Contact support@wekasoko.co.ke to appeal.`
             : severity === "flagged"
-            ? `WARNING (${count}/3): Your message was blocked — it contained contact information ("${violation.reason}"). One more violation will result in account suspension. Contact info can only be shared after the KSh 250 unlock is paid.`
-            : `WARNING (${count}/3): Your message was blocked — it appeared to contain contact information ("${violation.reason}"). Contact info must stay hidden until the KSh 250 unlock is paid.`;
+            ? `WARNING (${count}/3): Your message was blocked — it contained contact information ("${violation.reason}"). One more violation will result in account suspension. Contact info can only be shared after the KSh 260 unlock is paid.`
+            : `WARNING (${count}/3): Your message was blocked — it appeared to contain contact information ("${violation.reason}"). Contact info must stay hidden until the KSh 260 unlock is paid.`;
 
           await query(
             `INSERT INTO notifications (user_id, type, title, body, data)
@@ -209,7 +209,7 @@ io.on("connection", (socket) => {
                 sendEmail(
                   u.email, u.name,
                   "Your Weka Soko account has been suspended",
-                  `Hi ${u.name},\n\nYour account has been suspended for repeatedly sharing contact information in chat before completing an unlock payment.\n\nViolation: "${violation.reason}"\nTotal violations: ${count}\n\nIf you believe this is a mistake, please contact us at support@wekasoko.co.ke with your account email and a brief explanation.\n\nContact information must stay private until the KSh 250 unlock fee is paid. This protects both buyers and sellers.\n\n— Weka Soko`
+                  `Hi ${u.name},\n\nYour account has been suspended for repeatedly sharing contact information in chat before completing an unlock payment.\n\nViolation: "${violation.reason}"\nTotal violations: ${count}\n\nIf you believe this is a mistake, please contact us at support@wekasoko.co.ke with your account email and a brief explanation.\n\nContact information must stay private until the KSh 260 unlock fee is paid. This protects both buyers and sellers.\n\n— Weka Soko`
                 ).catch(() => {});
               }
             }).catch(() => {});
@@ -220,7 +220,7 @@ io.on("connection", (socket) => {
                 sendEmail(
                   u.email, u.name,
                   severity === "flagged" ? "Final warning — Weka Soko" : "Message blocked — Weka Soko",
-                  `Hi ${u.name},\n\nYour message in a Weka Soko chat was blocked because it appeared to contain contact information ("${violation.reason}").\n\nViolation count: ${count}/3\n${severity === "flagged" ? " One more violation will suspend your account." : ""}\n\nContact information (phone numbers, emails, social handles) must stay hidden until the KSh 250 unlock fee is paid.\n\nIf you think this was a mistake, contact support@wekasoko.co.ke.\n\n— Weka Soko`
+                  `Hi ${u.name},\n\nYour message in a Weka Soko chat was blocked because it appeared to contain contact information ("${violation.reason}").\n\nViolation count: ${count}/3\n${severity === "flagged" ? " One more violation will suspend your account." : ""}\n\nContact information (phone numbers, emails, social handles) must stay hidden until the KSh 260 unlock fee is paid.\n\nIf you think this was a mistake, contact support@wekasoko.co.ke.\n\n— Weka Soko`
                 ).catch(() => {});
               }
             }).catch(() => {});

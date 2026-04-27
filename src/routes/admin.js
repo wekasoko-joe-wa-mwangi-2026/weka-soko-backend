@@ -1177,12 +1177,12 @@ router.post("/broadcast", requireAuth, requireAdmin, async (req, res, next) => {
 
 // ── POST /api/admin/listings/:id/discount ──────────────────────────────────────
 // Grant a flat KSh discount on the unlock fee for a specific listing.
-// discount_amount = 0-250 (250 = free unlock). Seller is notified immediately.
+// discount_amount = 0-260 (250 = free unlock). Seller is notified immediately.
 router.post("/listings/:id/discount", requireAdmin, async (req, res, next) => {
   try {
     const { id } = req.params;
     const discount = parseInt(req.body.discount_amount);
-    const UNLOCK_FEE = parseInt(process.env.UNLOCK_FEE_KES || "250");
+    const UNLOCK_FEE = parseInt(process.env.UNLOCK_FEE_KES || "260");
     if (isNaN(discount) || discount < 0 || discount > UNLOCK_FEE)
       return res.status(400).json({ error: `discount_amount must be between 0 and ${UNLOCK_FEE}` });
 

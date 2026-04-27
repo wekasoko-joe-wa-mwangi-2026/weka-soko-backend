@@ -87,7 +87,7 @@ async function sendBuyerLockedIn({ sellerId, listingTitle, listingId }) {
     if (userResult.rows.length === 0) return;
     const user = userResult.rows[0];
 
-    const body = `Great news, ${user.name}! \n\nA buyer has locked in on your listing:\n"${listingTitle}"\n\nTo reveal their contact details, log in and pay the KSh 250 unlock fee.\n\nVisit: https://weka-soko.vercel.app\n\n— Weka Soko Team`;
+    const body = `Great news, ${user.name}! \n\nA buyer has locked in on your listing:\n"${listingTitle}"\n\nTo reveal their contact details, log in and pay the KSh 260 unlock fee.\n\nVisit: https://weka-soko.vercel.app\n\n— Weka Soko Team`;
 
     await query(
       `INSERT INTO inbox_messages (recipient_id, sender_type, subject, body, listing_id, created_at)

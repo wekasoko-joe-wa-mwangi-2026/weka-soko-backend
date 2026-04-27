@@ -6,7 +6,7 @@ const { initiateSTKPush, handleCallback, querySTKStatus } = require("../services
 
 const router = express.Router();
 const { sendPushToUser } = require("./push");
-const UNLOCK_FEE = parseInt(process.env.UNLOCK_FEE_KES || "250");
+const UNLOCK_FEE = parseInt(process.env.UNLOCK_FEE_KES || "260");
 const ESCROW_FEE_PCT = parseFloat(process.env.ESCROW_FEE_PERCENT || "5.5") / 100;
 
 // ── POST /api/payments/unlock ──────────────────────────────────────────────────
@@ -217,7 +217,7 @@ router.post("/verify-manual", requireAuth, async (req, res, next) => {
     if (!payments.length) {
       const { rows: listingRows } = await query(`SELECT * FROM listings WHERE id=$1`, [listing_id]);
       if (!listingRows.length) return res.status(404).json({ error: "Listing not found" });
-      const amount = type === "unlock" ? parseInt(process.env.UNLOCK_FEE_KES || "250") : listingRows[0].price;
+      const amount = type === "unlock" ? parseInt(process.env.UNLOCK_FEE_KES || "260") : listingRows[0].price;
       const { rows: newPayment } = await query(`INSERT INTO payments (payer_id,listing_id,type,amount_kes,mpesa_phone) VALUES ($1,$2,$3,$4,$5) RETURNING id`, [req.user.id, listing_id, type, amount, "manual"]);
       paymentId = newPayment[0].id;
     } else { paymentId = payments[0].id; }

@@ -100,7 +100,7 @@ router.post("/:id/accept", requireAuth, async (req, res, next) => {
       if (vrows.length) { voucherRow = vrows[0]; discountPct = voucherRow.discount_percent || 0; }
     }
 
-    const PITCH_FEE = 250;
+    const PITCH_FEE = 260;
     const finalAmount = Math.max(0, Math.round(PITCH_FEE * (1 - discountPct / 100)));
 
     // Free via voucher
