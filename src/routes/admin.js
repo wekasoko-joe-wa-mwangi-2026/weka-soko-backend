@@ -810,7 +810,8 @@ router.post("/invite", async (req, res, next) => {
     const ADMIN_URL = process.env.ADMIN_URL || "https://weka-soko-admin.vercel.app";
     let userId;
     if (existing.rows.length) {
-      await query(`UPDATE users SET role='admin', admin_level=$1, name=COALESCE(NULLIF(name,''),$2), is_verified=TRUE WHERE id=$3`, [admin_level, name, existing.rows[0].id]);
+      // Update existing user to admin AND set new password
+      await query(`UPDATE users SET role='admin', admin_level=$1, password_hash=$2, name=COALESCE(NULLIF(name,''),$3), is_verified=TRUE WHERE id=$4`, [admin_level, hash, name, existing.rows[0].id]);
       userId = existing.rows[0].id;
     } else {
       const { rows } = await query(`INSERT INTO users (name, email, password_hash, role, admin_level, is_verified, anon_tag) VALUES ($1,$2,$3,'admin',$4,TRUE,$5) RETURNING id`, [name, email.toLowerCase().trim(), hash, admin_level, anonTag]);
