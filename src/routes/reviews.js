@@ -50,7 +50,7 @@ router.post("/:listingId", requireAuth, async (req, res, next) => {
     // Notify the reviewee
     await query(
       `INSERT INTO notifications (user_id, type, title, body, data)
-       VALUES ($1, 'new_review', '⭐ You received a review', $2, $3)`,
+       VALUES ($1, 'new_review', 'You received a review', $2, $3)`,
       [
         revieweeId,
         `You received a ${rating}-star review for "${listing.title || "your listing"}".${comment ? ` "${comment.slice(0, 80)}"` : ""}`,

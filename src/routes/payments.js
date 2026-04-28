@@ -180,14 +180,14 @@ router.post("/paystack/webhook", async (req, res, next) => {
             // Notify seller
             await query(
               `INSERT INTO notifications (user_id,type,title,body,data) VALUES ($1,$2,$3,$4,$5)`,
-              [listing.seller_id, 'listing_unlocked', '🔓 Contact Info Unlocked!', 
+              [listing.seller_id, 'listing_unlocked', 'Contact Info Unlocked', 
                `Your listing "${listing.title}" is now unlocked. Buyers can see your contact info.`,
                JSON.stringify({ listing_id: listing.id })]
             ).catch(()=>{});
             
             sendPushToUser(listing.seller_id, {
               type: "listing_unlocked",
-              title: "🔓 Contact Info Unlocked!",
+              title: "Contact Info Unlocked",
               body: `Your listing "${listing.title}" is now unlocked.`,
               data: { listing_id: listing.id }
             }).catch(()=>{});

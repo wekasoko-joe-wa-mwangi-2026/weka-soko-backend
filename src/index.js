@@ -118,7 +118,7 @@ io.on("connection", (socket) => {
           ).catch(()=>{});
           const chatOpenedPayload = {
             type: "chat_opened",
-            title: "Someone is interested! 👀",
+            title: "Someone is interested",
             body: `${buyerTag} opened a chat on your listing.`,
             data: { listing_id: listingId }
           };
@@ -288,7 +288,7 @@ io.on("connection", (socket) => {
         ).catch(() => {});
         const newMsgPayload = {
           type: "new_message",
-          title: "💬 New Message",
+          title: "New Message",
           body: `${senderTag}: ${body.trim().slice(0, 60)}`,
           data: { listing_id: listingId },
         };

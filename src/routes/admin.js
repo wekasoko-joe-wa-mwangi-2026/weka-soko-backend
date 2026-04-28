@@ -904,7 +904,7 @@ router.post("/moderation/:id/approve", async (req, res, next) => {
     const io = req.app?.get("io");
     if (io) {
       // Notify the seller their ad is live
-      io.to(`user:${listing.seller_id}`).emit("notification", { type: "listing_approved", title: "🎉 Ad Approved!", body: `Your listing "${listing.title}" is now live!`, data: { listing_id: id } });
+      io.to(`user:${listing.seller_id}`).emit("notification", { type: "listing_approved", title: "Ad Approved", body: `Your listing "${listing.title}" is now live!`, data: { listing_id: id } });
       // Global feed refresh — sends the full listing object to all connected users
       query(
         `SELECT l.id, l.title, l.description, l.category, l.subcat, l.price, l.location, l.county,
