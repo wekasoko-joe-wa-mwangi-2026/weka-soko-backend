@@ -2,16 +2,17 @@
 const FRONTEND = process.env.FRONTEND_URL || 'https://weka-soko-nextjs-q89r3s4q6.vercel.app';
 
 async function sendEmail(to, name, subject, text) {
-  // Skip silently if not configured (original behavior)
-  if (!process.env.SENDGRID_API_KEY || !process.env.EMAIL_FROM) {
-    console.log(`[Email] Skipped (not configured): ${subject} to ${to}`);
-    console.log(`[Email] SENDGRID_API_KEY: ${process.env.SENDGRID_API_KEY ? 'SET' : 'MISSING'}`);
-    console.log(`[Email] EMAIL_FROM: ${process.env.EMAIL_FROM ? 'SET' : 'MISSING'}`);
-    return;
-  }
-  
+  // Check for Brevo configuration
+  const brevoKey = process.env.BREVO_API_KEY;
   const fromEmail = process.env.EMAIL_FROM;
   
+  if (!brevoKey || !fromEmail) {
+    console.log(`[Email] Skipped (not configured): ${subject} to ${to}`);
+    console.log(`[Email] BREVO_API_KEY: ${brevoKey ? 'SET' : 'MISSING'}`);
+    console.log(`[Email] EMAIL_FROM: ${fromEmail ? 'SET' : 'MISSING'}`);
+    return;
+  }
+
   try {
     const html = `<!DOCTYPE html>
 <html lang="en">
@@ -130,41 +131,31 @@ Weka<span style="color:#1428A0;">Soko</span>
 </body>
 </html>`;
 
-    const res = await fetch("https://api.sendgrid.com/v3/mail/send", {
+    // Brevo API format
+    const res = await fetch("https://api.brevo.com/v3/smtp/email", {
       method: "POST",
-      headers: { Authorization: `Bearer ${process.env.SENDGRID_API_KEY}`, "Content-Type": "application/json" },
+      headers: { 
+        "api-key": brevoKey,
+        "Content-Type": "application/json" 
+      },
       body: JSON.stringify({
-        personalizations: [{ to: [{ email: to, name }] }],
-        from: { email: fromEmail, name: "Weka Soko" },
-        reply_to: { email: fromEmail, name: "Weka Soko" },
-        subject,
-        headers: {
-          "List-Unsubscribe": `<mailto:${fromEmail}?subject=unsubscribe>`,
-          "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
-          "X-Entity-Ref-ID": `wekasoko-${Date.now()}`,
-          "Precedence": "bulk",
-          "X-Mailer": "WekaSoko-v2",
-        },
-        categories: ["transactional"],
-        mail_settings: { bypass_list_management: { enable: false } },
-        tracking_settings: {
-          click_tracking: { enable: true },
-          open_tracking: { enable: true },
-        },
-        content: [
-          { type: "text/plain", value: text },
-          { type: "text/html", value: html },
-        ],
+        sender: { email: fromEmail, name: "Weka Soko" },
+        to: [{ email: to, name: name || to }],
+        replyTo: { email: fromEmail, name: "Weka Soko" },
+        subject: subject,
+        htmlContent: html,
+        textContent: text,
+        tags: ["transactional"]
       }),
     });
-    
+
     if (!res.ok) {
       const e = await res.text();
-      console.error("[Email] SendGrid error:", res.status, e);
+      console.error("[Email] Brevo error:", res.status, e);
       // Don't throw - just log error (original behavior)
       return;
     }
-    
+
     console.log(`[Email] Sent to ${to} — "${subject}"`);
   } catch (err) {
     console.error("[Email] failed:", err.message);
