@@ -24,8 +24,17 @@ async function getMaintenanceState() {
 function invalidateMaintenanceCache() { cached.checkedAt = 0; }
 
 async function maintenanceMiddleware(req, res, next) {
-  // Always allow: admin routes, health check, M-Pesa callback
-  if (req.path.startsWith("/api/admin") || req.path === "/health" || req.path.includes("/mpesa/callback")) return next();
+  // Always allow: admin routes, health check, M-Pesa/Paystack callbacks, and auth routes (login/signup)
+  if (
+    req.path.startsWith("/api/admin") || 
+    req.path === "/health" || 
+    req.path.includes("/mpesa/callback") ||
+    req.path.includes("/paystack/webhook") ||
+    req.path === "/api/auth/login" ||
+    req.path === "/api/auth/register" ||
+    req.path === "/api/auth/forgot-password" ||
+    req.path === "/api/auth/reset-password"
+  ) return next();
   const state = await getMaintenanceState();
   if (state.enabled) {
     return res.status(503).json({
