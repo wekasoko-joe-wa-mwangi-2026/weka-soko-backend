@@ -5,6 +5,8 @@ async function sendEmail(to, name, subject, text) {
   // Skip silently if not configured (original behavior)
   if (!process.env.SENDGRID_API_KEY || !process.env.EMAIL_FROM) {
     console.log(`[Email] Skipped (not configured): ${subject} to ${to}`);
+    console.log(`[Email] SENDGRID_API_KEY: ${process.env.SENDGRID_API_KEY ? 'SET' : 'MISSING'}`);
+    console.log(`[Email] EMAIL_FROM: ${process.env.EMAIL_FROM ? 'SET' : 'MISSING'}`);
     return;
   }
   
