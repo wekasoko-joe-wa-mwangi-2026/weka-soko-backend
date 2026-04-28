@@ -834,12 +834,14 @@ router.post("/invite", async (req, res, next) => {
         `Hi ${name},\n\nYou have been invited to manage the Weka Soko admin panel with ${admin_level} access.\n\nLogin at: ${ADMIN_URL}\nEmail: ${email}\nTemporary password: ${tempPassword}\n\nPlease change your password after first login.\n\nAccess level: ${admin_level}\n— Weka Soko`
       );
       console.log(`[Admin Invite] Email sent successfully to ${email}`);
+      await auditLog({ adminId: req.user.id, adminEmail: req.user.email, action: "admin_invite", targetType: "user", targetId: userId, details: { email, name, admin_level }, ip: req.ip });
+      res.json({ ok: true, message: `Admin invite sent to ${email} with ${admin_level} access.`, userId });
     } catch (emailErr) {
       console.error("[Admin Invite] Failed to send email:", emailErr.message);
-      // Don't fail the whole request if email fails - user is still created
+      // Email failed but user was created - still return success with warning
+      await auditLog({ adminId: req.user.id, adminEmail: req.user.email, action: "admin_invite", targetType: "user", targetId: userId, details: { email, name, admin_level, email_error: emailErr.message }, ip: req.ip });
+      res.json({ ok: true, warning: "User created but email failed to send", userId });
     }
-    await auditLog({ adminId: req.user.id, adminEmail: req.user.email, action: "admin_invite", targetType: "user", targetId: userId, details: { email, name, admin_level }, ip: req.ip });
-    res.json({ ok: true, message: `Admin invite sent to ${email} with ${admin_level} access.`, userId });
   } catch (err) { console.error("[Admin invite]", err.message); next(err); }
 });
 

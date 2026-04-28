@@ -3,13 +3,15 @@ const FRONTEND = process.env.FRONTEND_URL || 'https://weka-soko-nextjs-q89r3s4q6
 
 async function sendEmail(to, name, subject, text) {
   if (!process.env.SENDGRID_API_KEY) {
-    console.error("[Email] SENDGRID_API_KEY not set - email not sent");
-    return;
+    const err = new Error("SENDGRID_API_KEY not set");
+    console.error("[Email]", err.message);
+    throw err;
   }
   const fromEmail = process.env.EMAIL_FROM;
   if (!fromEmail) {
-    console.error("[Email] EMAIL_FROM not set - email not sent");
-    return;
+    const err = new Error("EMAIL_FROM not set");
+    console.error("[Email]", err.message);
+    throw err;
   }
   try {
     const html = `<!DOCTYPE html>
@@ -156,8 +158,12 @@ ${text.replace(/</g, "&lt;").replace(/>/g, "&gt;")}
         ],
       }),
     });
-    if (!res.ok) { const e = await res.text(); console.error("[Email] SendGrid error:", res.status, e); }
-    else console.log(`[Email] Sent to ${to} — "${subject}"`);
+    if (!res.ok) { 
+      const e = await res.text(); 
+      console.error("[Email] SendGrid error:", res.status, e); 
+      throw new Error(`SendGrid error: ${res.status} - ${e}`);
+    }
+    console.log(`[Email] Sent to ${to} — "${subject}"`);
   } catch (err) { console.error("[Email] failed:", err.message); }
 }
 
