@@ -116,10 +116,10 @@ router.post("/escrow", requireAuth, async (req, res, next) => {
       );
       const paymentId = paymentRows[0].id;
 
-      await client.query(
-        `INSERT INTO escrows (listing_id, buyer_id, seller_id, payment_id, item_amount, fee_amount, total_amount, status, release_after) VALUES ($1,$2,$3,$4,$5,$6,$7,'pending',$8)`,
-        [listing_id, req.user.id, listing.seller_id, paymentId, listing.price, feeAmount, totalAmount, releaseAfter]
-      );
+await client.query(
+      `INSERT INTO escrows (listing_id, buyer_id, seller_id, payment_id, item_amount, fee_amount, total_amount, amount_kes, status, release_after) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'pending',$9)`,
+      [listing_id, req.user.id, listing.seller_id, paymentId, listing.price, feeAmount, totalAmount, totalAmount, releaseAfter]
+    );
 
       // Initialize Paystack transaction
       const paystackResult = await initializeTransaction({
